@@ -1,0 +1,18 @@
+[Unit]
+Description=wakeword
+After=network-online.target nss-lookup.target sound.target
+Wants=network-online.target
+
+[Service]
+User=wakeword
+DynamicUser=yes
+SupplementaryGroups=audio
+StateDirectory=wakeword
+CacheDirectory=wakeword
+Type=simple
+Restart=on-failure
+RestartSec=5s
+ExecStart=/usr/bin/wakeword --config /etc/wakeword/settings
+
+[Install]
+WantedBy=default.target

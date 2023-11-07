@@ -1,0 +1,12 @@
+picovoice:
+  access_key: "ACCESS_KEY"
+openai:
+  api_key: "API_KEY"
+zenoh:
+  connect:
+    - "tcp/homepi:7447"
+    - "tcp/dork:7447"
+    - "udp/dork:7448"
+  listen:
+    - "tcp/0.0.0.0:7447"
+    - "udp/0.0.0.0:7448"
