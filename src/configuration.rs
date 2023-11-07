@@ -4,7 +4,7 @@ use std::{path::PathBuf, str};
 use tracing::*;
 use zenoh::config::Config as ZenohConfig;
 
-use crate::error::HopperError;
+use crate::WakewordError;
 
 /// Use default config if no path is provided
 pub fn get_configuration(config: &Option<PathBuf>) -> anyhow::Result<WakewordConfig> {
@@ -33,37 +33,36 @@ pub fn get_configuration(config: &Option<PathBuf>) -> anyhow::Result<WakewordCon
 #[derive(Deserialize, Debug, Clone)]
 pub struct WakewordConfig {
     pub picovoice: PicovoiceConfig,
-    pub openai: OpenAiConfig,
-    pub zenoh: ZenohConfig,
+    pub openai: WakeWordOpenaiConfig,
+    pub zenoh: WakewordZenohConfig,
 }
-
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct PicovoiceConfig {
     pub access_key: String,
-    pub keywords: Option<Vec<String>>
-    pub keyword_paths: Option<Vec<std::path::PathBuf>>
-    pub model_path: Option<std::path::PathBuf>
-    pub sensitivities: Option<Vec<f32>>
-    pub audio_device_index: Option<i32>
+    pub keywords: Option<Vec<String>>,
+    pub keyword_paths: Option<Vec<std::path::PathBuf>>,
+    pub model_path: Option<std::path::PathBuf>,
+    pub sensitivities: Option<Vec<f32>>,
+    pub audio_device_index: Option<i32>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
-pub struct OpenaiConfig {
+pub struct WakeWordOpenaiConfig {
     pub api_key: String,
 }
 
 #[derive(Deserialize, Debug, Clone)]
-pub struct ZenohConfig {
+pub struct WakewordZenohConfig {
     pub connect: Vec<zenoh_config::EndPoint>,
     pub listen: Vec<zenoh_config::EndPoint>,
     pub config_path: Option<String>,
 }
 
-impl ZenohConfig {
+impl WakewordZenohConfig {
     pub fn get_zenoh_config(&self) -> anyhow::Result<ZenohConfig> {
         let mut config = if let Some(conf_file) = &self.config_path {
-            ZenohConfig::from_file(conf_file).map_err(HopperError::ZenohError)?
+            ZenohConfig::from_file(conf_file).map_err(WakewordError::ZenohError)?
         } else {
             ZenohConfig::default()
         };
@@ -76,8 +75,6 @@ impl ZenohConfig {
         Ok(config)
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {
