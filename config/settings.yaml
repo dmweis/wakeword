@@ -2,6 +2,11 @@ app:
   zenoh_prefix: "wakeword"
 picovoice:
   access_key: "ACCESS_KEY"
+  audio_device_index: -1
+  keyword_paths:
+    "SOME_KEYWORD": "SOME_PATH"
+  keywords:
+    - "bumblebee"
 openai:
   api_key: "API_KEY"
 zenoh:
