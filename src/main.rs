@@ -13,12 +13,11 @@ use async_openai::{
 use clap::Parser;
 use cobra::Cobra;
 use configuration::{get_configuration, AppConfig, PicovoiceConfig};
-use porcupine::{BuiltinKeywords, PorcupineBuilder};
+use porcupine::PorcupineBuilder;
 use pv_recorder::PvRecorderBuilder;
 use serde::{Deserialize, Serialize};
 use std::{
-    path::{Path, PathBuf},
-    str::FromStr,
+    path::Path,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -90,18 +89,17 @@ enum AudioDetectorData {
 
 fn listener_loop(
     config: PicovoiceConfig,
-    keywords_or_paths: KeywordsOrPaths,
     audio_sample_sender: tokio::sync::mpsc::Sender<AudioSample>,
     audio_detector_data: tokio::sync::mpsc::Sender<AudioDetectorData>,
 ) -> anyhow::Result<()> {
-    let mut porcupine_builder = match keywords_or_paths {
-        KeywordsOrPaths::Keywords(ref keywords) => {
-            PorcupineBuilder::new_with_keywords(&config.access_key, keywords)
-        }
-        KeywordsOrPaths::KeywordPaths(ref keyword_paths) => {
-            PorcupineBuilder::new_with_keyword_paths(&config.access_key, keyword_paths)
-        }
-    };
+    let selected_keywords = config.keyword_pairs()?;
+    let keyword_paths = selected_keywords
+        .iter()
+        .map(|(_, path)| path)
+        .collect::<Vec<_>>();
+
+    let mut porcupine_builder =
+        PorcupineBuilder::new_with_keyword_paths(&config.access_key, &keyword_paths);
 
     let cobra = Cobra::new(config.access_key)
         .map_err(WakewordError::CobraError)
@@ -152,7 +150,11 @@ fn listener_loop(
             // flit to true if we detect a wake word
             currently_recording = true;
             last_wake_word_timestamp = timestamp;
-            last_wake_word = keywords_or_paths.get(keyword_index as usize);
+            last_wake_word = selected_keywords
+                .get(keyword_index as usize)
+                .context("Keyword index unknown")?
+                .0
+                .clone();
 
             tracing::info!("Detected {:?}", last_wake_word);
 
@@ -225,25 +227,6 @@ fn listener_loop(
     //recorder.stop().context("Failed to stop audio recording")?;
 }
 
-#[derive(Clone)]
-enum KeywordsOrPaths {
-    Keywords(Vec<BuiltinKeywords>),
-    KeywordPaths(Vec<PathBuf>),
-}
-
-impl KeywordsOrPaths {
-    fn get(&self, index: usize) -> String {
-        match self {
-            Self::Keywords(keywords) => keywords[index].to_str().to_string(),
-            Self::KeywordPaths(keyword_paths) => keyword_paths[index]
-                .clone()
-                .into_os_string()
-                .into_string()
-                .unwrap(),
-        }
-    }
-}
-
 /// Wake Word detection application using picovoice and zenoh
 #[derive(Parser)]
 #[command(author, version)]
@@ -272,24 +255,6 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let keywords_or_paths: KeywordsOrPaths = {
-        if let Some(keyword_paths) = &app_config.picovoice.keyword_paths {
-            KeywordsOrPaths::KeywordPaths(keyword_paths.clone())
-        } else if let Some(keywords) = &app_config.picovoice.keywords {
-            KeywordsOrPaths::Keywords(
-                keywords
-                    .iter()
-                    .flat_map(|keyword| match BuiltinKeywords::from_str(keyword) {
-                        Ok(keyword) => vec![keyword],
-                        Err(_) => vec![],
-                    })
-                    .collect(),
-            )
-        } else {
-            anyhow::bail!("Keywords or keyword paths must be specified");
-        }
-    };
-
     let zenoh_config = app_config.zenoh.get_zenoh_config()?;
     let zenoh_session = zenoh::open(zenoh_config)
         .res()
@@ -307,7 +272,6 @@ async fn main() -> anyhow::Result<()> {
         move || loop {
             match listener_loop(
                 app_config.picovoice.clone(),
-                keywords_or_paths.clone(),
                 audio_sample_sender.clone(),
                 audio_detector_event_sender.clone(),
             ) {

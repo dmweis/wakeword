@@ -1,6 +1,11 @@
 use config::Config;
+use porcupine::{util::pv_keyword_paths, BuiltinKeywords};
 use serde::Deserialize;
-use std::{path::PathBuf, str};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    str::{self, FromStr},
+};
 use tracing::*;
 use zenoh::config::Config as ZenohConfig;
 
@@ -79,10 +84,54 @@ impl AppConfig {
 pub struct PicovoiceConfig {
     pub access_key: String,
     pub keywords: Option<Vec<String>>,
-    pub keyword_paths: Option<Vec<std::path::PathBuf>>,
+    pub keyword_paths: Option<HashMap<String, std::path::PathBuf>>,
     pub model_path: Option<std::path::PathBuf>,
     pub sensitivities: Option<Vec<f32>>,
     pub audio_device_index: Option<i32>,
+}
+
+impl PicovoiceConfig {
+    #[allow(dead_code)]
+    pub fn try_convert_keywords(&self) -> anyhow::Result<Vec<BuiltinKeywords>> {
+        if let Some(keywords) = &self.keywords {
+            let keywords = keywords
+                .iter()
+                .map(|keyword| BuiltinKeywords::from_str(keyword))
+                .collect::<Result<Vec<_>, _>>();
+
+            match keywords {
+                Ok(keywords) => Ok(keywords),
+                Err(()) => Err(anyhow::anyhow!(
+                    "Failed to convert keywords to built in keywords"
+                )),
+            }
+        } else {
+            Ok(vec![])
+        }
+    }
+
+    pub fn keyword_pairs(&self) -> anyhow::Result<Vec<(String, PathBuf)>> {
+        let built_in_keywords = pv_keyword_paths();
+
+        let mut selected_keywords = vec![];
+
+        for built_in_keyword in self.keywords.iter().flatten() {
+            if let Some(keyword_path) = built_in_keywords.get(built_in_keyword) {
+                selected_keywords.push((built_in_keyword.clone(), PathBuf::from(keyword_path)));
+            } else {
+                return Err(anyhow::anyhow!(
+                    "Keyword {} not found in built-in keywords",
+                    built_in_keyword
+                ));
+            }
+        }
+
+        for (keyword, keyword_path) in self.keyword_paths.iter().flatten() {
+            selected_keywords.push((keyword.clone(), keyword_path.clone()));
+        }
+
+        Ok(selected_keywords)
+    }
 }
 
 #[derive(Deserialize, Debug, Clone)]
