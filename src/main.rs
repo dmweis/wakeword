@@ -101,9 +101,15 @@ fn listener_loop(
     let mut porcupine_builder =
         PorcupineBuilder::new_with_keyword_paths(&config.access_key, &keyword_paths);
 
-    let cobra = Cobra::new(config.access_key)
-        .map_err(WakewordError::CobraError)
-        .context("Failed to create Cobra")?;
+    let cobra = if let Some(cobra_lib_path) = config.cobra_lib_path {
+        Cobra::new_with_library(config.access_key, cobra_lib_path)
+            .map_err(WakewordError::CobraError)
+            .context("Failed to create Cobra")?
+    } else {
+        Cobra::new(config.access_key)
+            .map_err(WakewordError::CobraError)
+            .context("Failed to create Cobra")?
+    };
 
     if let Some(sensitivities) = config.sensitivities {
         porcupine_builder.sensitivities(&sensitivities);
@@ -113,12 +119,22 @@ fn listener_loop(
         porcupine_builder.model_path(model_path);
     }
 
+    if let Some(porcupine_lib_path) = config.porcupine_lib_path {
+        porcupine_builder.library_path(porcupine_lib_path);
+    }
+
     let porcupine = porcupine_builder
         .init()
         .context("Failed to create Porcupine")?;
 
-    let recorder = PvRecorderBuilder::new(porcupine.frame_length() as i32)
-        .device_index(config.audio_device_index.unwrap_or(-1))
+    let mut recorder_builder = PvRecorderBuilder::new(porcupine.frame_length() as i32);
+    recorder_builder.device_index(config.audio_device_index.unwrap_or(-1));
+
+    if let Some(lib_path) = config.recorder_lib_path {
+        recorder_builder.library_path(&lib_path);
+    }
+
+    let recorder = recorder_builder
         .init()
         .context("Failed to initialize pvrecorder")?;
 

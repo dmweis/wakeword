@@ -4,8 +4,8 @@ After=network-online.target nss-lookup.target sound.target
 Wants=network-online.target
 
 [Service]
-User=wakeword
-DynamicUser=yes
+# For some reason this segfaults on a raspberry pi 3B+ if it's not run as pi
+User=pi
 SupplementaryGroups=audio
 Type=simple
 Restart=on-failure

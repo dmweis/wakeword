@@ -88,6 +88,10 @@ pub struct PicovoiceConfig {
     pub model_path: Option<std::path::PathBuf>,
     pub sensitivities: Option<Vec<f32>>,
     pub audio_device_index: Option<i32>,
+    // these are stupid. Why are they not included in a more sensible way?
+    pub cobra_lib_path: Option<std::path::PathBuf>,
+    pub porcupine_lib_path: Option<std::path::PathBuf>,
+    pub recorder_lib_path: Option<std::path::PathBuf>,
 }
 
 impl PicovoiceConfig {

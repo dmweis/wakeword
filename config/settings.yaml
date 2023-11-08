@@ -4,9 +4,16 @@ picovoice:
   access_key: "ACCESS_KEY"
   audio_device_index: -1
   keyword_paths:
-    "SOME_KEYWORD": "SOME_PATH"
-  keywords:
-    - "bumblebee"
+    "Hey Hopper": "/home/pi/Hey-Hopper_en_raspberry-pi_v3_0_0.ppn"
+    "bumblebee": "/home/pi/wakeword/default_keyword_files/bumblebee_raspberry-pi.ppn"
+  # Default keywords aren't portable
+  # keywords:
+  #  - "bumblebee"
+  # These libraries aren't very portable so copying them here fixes that
+  cobra_lib_path: /home/pi/wakeword/libpv_cobra.so
+  porcupine_lib_path: /home/pi/wakeword/libpv_porcupine.so
+  recorder_lib_path: /home/pi/wakeword/libpv_recorder.so
+  model_path: /home/pi/wakeword/porcupine_params.pv
 openai:
   api_key: "API_KEY"
 zenoh:

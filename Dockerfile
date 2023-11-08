@@ -50,3 +50,10 @@ FROM scratch AS export
 COPY --from=builder /app/target/debian/wakeword*.deb /
 COPY --from=builder /app/target/debian/wakeword*.deb /wakeword.deb
 COPY --from=builder /app/target/release/wakeword /
+# The picovoice libraries aren't effectively portable so this is a bit of a hack
+# We should include them in the deb package
+COPY --from=builder /app/target/release/build/pv_cobra-*/out/lib/raspberry-pi/cortex-a72-aarch64/libpv_cobra.so /libpv_cobra.so
+COPY --from=builder /app/target/release/build/pv_porcupine-*/out/lib/raspberry-pi/cortex-a72-aarch64/libpv_porcupine.so /libpv_porcupine.so
+COPY --from=builder /app/target/release/build/pv_recorder-*/out/lib/raspberry-pi/cortex-a72-aarch64/libpv_recorder.so /libpv_recorder.so
+COPY --from=builder /app/target/release/build/pv_porcupine-f21c3b4da5f370e8/out/lib/common/porcupine_params.pv /porcupine_params.pv
+COPY --from=builder /app/target/release/build/pv_porcupine-f21c3b4da5f370e8/out/resources/keyword_files/raspberry-pi/* /default_keyword_files/
