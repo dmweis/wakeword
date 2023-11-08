@@ -171,6 +171,8 @@ fn listener_loop(
                 .context("Keyword index unknown")?
                 .0
                 .clone();
+            // also bump this to prevent going to sleep if human detection is slow
+            last_human_speech_detected = Instant::now();
 
             tracing::info!("Detected {:?}", last_wake_word);
 
