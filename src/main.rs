@@ -20,6 +20,7 @@ use std::{
     path::{Path, PathBuf},
     str::FromStr,
     sync::Arc,
+    time::{Duration, Instant},
 };
 use tempdir::TempDir;
 use thiserror::Error;
@@ -29,17 +30,13 @@ use zenoh::prelude::r#async::*;
 const VOICE_TO_TEXT_TRANSCRIBE_MODEL: &str = "whisper-1";
 const VOICE_TO_TEXT_TRANSCRIBE_MODEL_ENGLISH_LANGUAGE: &str = "en";
 
-fn print_voice_activity(voice_probability: f32) {
-    let voice_percentage = voice_probability * 100.0;
-    let bar_length = ((voice_percentage / 10.0) * 3.0).ceil() as usize;
-    let empty_length = 30 - bar_length;
-    tracing::info!(
-        "[{:3.0}]|{}{}|",
-        voice_percentage,
-        "█".repeat(bar_length),
-        " ".repeat(empty_length)
-    );
-}
+// zenoh topic
+const VOICE_PROBABILITY_TOPIC: &str = "wakeword/telemetry/voice_probability";
+const VOICE_PROBABILITY_PRETTY_PRINT_TOPIC: &str =
+    "wakeword/telemetry/voice_probability_pretty_print";
+const WAKE_WORD_DETECTION_TOPIC: &str = "wakeword/event/wake_word_detection";
+const WAKE_WORD_DETECTION_END_TOPIC: &str = "wakeword/event/wake_word_detection_end";
+const TRANSCRIPT_TOPIC: &str = "wakeword/event/transcript";
 
 struct AudioSample {
     data: Vec<i16>,
@@ -69,12 +66,19 @@ impl AudioSample {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct VoiceProbability {
+    /// 0.0 to 1.0
     probability: f32,
     timestamp: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 struct WakeWordDetection {
+    wake_word: String,
+    timestamp: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct WakeWordDetectionEnd {
     wake_word: String,
     timestamp: chrono::DateTime<chrono::Utc>,
 }
@@ -87,15 +91,9 @@ struct AudioTranscript {
 }
 
 enum AudioDetectorData {
-    VoiceProbability {
-        /// 0.0 to 1.0
-        probability: f32,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
-    WakeWordDetection {
-        wake_word: String,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
+    VoiceProbability(VoiceProbability),
+    WakeWordDetection(WakeWordDetection),
+    WakeWordDetectionEnd(WakeWordDetectionEnd),
 }
 
 fn listener_loop(
@@ -140,51 +138,99 @@ fn listener_loop(
 
     tracing::info!("Listening for wake words...");
 
+    const HUMAN_SPEECH_DETECTION_TIMEOUT: Duration = Duration::from_secs(3);
+    const HUMAN_SPEECH_DETECTION_PROBABILITY_THRESHOLD: f32 = 0.5;
+
+    let mut last_human_speech_detected = Instant::now();
+    let mut last_wake_word_timestamp = chrono::Utc::now();
+    let mut last_wake_word = String::new();
+    let mut currently_recording = false;
     let mut audio_buffer = Vec::new();
     loop {
+        let timestamp = chrono::Utc::now();
         let frame = recorder.read().context("Failed to read audio frame")?;
 
-        let timestamp = chrono::Utc::now();
-
+        // wake word detection
         let keyword_index = porcupine
             .process(&frame)
             .context("Failed to process audio frame")?;
-        if keyword_index >= 0 {
-            let wake_word = keywords_or_paths.get(keyword_index as usize);
-            tracing::info!("Detected {}", wake_word);
 
-            let event = AudioDetectorData::WakeWordDetection {
-                wake_word,
+        let wake_word_detected = keyword_index >= 0;
+        if wake_word_detected {
+            // flit to true if we detect a wake word
+            currently_recording = true;
+            last_wake_word_timestamp = timestamp;
+            last_wake_word = keywords_or_paths.get(keyword_index as usize);
+
+            tracing::info!("Detected {:?}", last_wake_word);
+
+            let event = AudioDetectorData::WakeWordDetection(WakeWordDetection {
+                wake_word: last_wake_word.clone(),
                 timestamp,
-            };
+            });
             if let Err(TrySendError::Closed(_)) = audio_detector_data.try_send(event) {
                 anyhow::bail!("Audio detector channel closed");
             }
         }
 
+        // voice probability
         let voice_probability = cobra
             .process(&frame)
             .map_err(WakewordError::CobraError)
             .context("Cobra processing failed")?;
 
-        let event = AudioDetectorData::VoiceProbability {
+        // send event
+        let event = AudioDetectorData::VoiceProbability(VoiceProbability {
             probability: voice_probability,
             timestamp,
-        };
+        });
         if let Err(TrySendError::Closed(_)) = audio_detector_data.try_send(event) {
             anyhow::bail!("Audio detector channel closed");
         }
 
-        print_voice_activity(voice_probability);
-
-        let sample_rate = porcupine.sample_rate();
-
-        if false {
+        // handle recording
+        if currently_recording {
             audio_buffer.extend_from_slice(&frame);
+        }
+
+        let human_speech_detected =
+            voice_probability > HUMAN_SPEECH_DETECTION_PROBABILITY_THRESHOLD;
+        if human_speech_detected {
+            last_human_speech_detected = Instant::now();
+        }
+
+        let should_be_recording =
+            last_human_speech_detected.elapsed() < HUMAN_SPEECH_DETECTION_TIMEOUT;
+
+        if currently_recording && !should_be_recording {
+            // stop recording
+            currently_recording = false;
+            let audio_sample = AudioSample {
+                data: audio_buffer.clone(),
+                wake_word: last_wake_word.clone(),
+                sample_rate: porcupine.sample_rate(),
+                timestamp: last_wake_word_timestamp,
+            };
+            audio_buffer.clear();
+
+            tracing::info!("Sending audio sample");
+            if let Err(TrySendError::Closed(_)) = audio_sample_sender.try_send(audio_sample) {
+                anyhow::bail!("Audio sample channel closed");
+            }
+
+            let event = AudioDetectorData::WakeWordDetectionEnd(WakeWordDetectionEnd {
+                wake_word: last_wake_word.clone(),
+                timestamp: last_wake_word_timestamp,
+            });
+            if let Err(TrySendError::Closed(_)) = audio_detector_data.try_send(event) {
+                anyhow::bail!("Audio detector channel closed");
+            }
         }
     }
 
-    recorder.stop().context("Failed to stop audio recording")?;
+    // TODO(David): Is this object RAII?
+    // Maybe we should have some nicer termination detection
+    //recorder.stop().context("Failed to stop audio recording")?;
 }
 
 #[derive(Clone)]
@@ -264,16 +310,20 @@ async fn main() -> anyhow::Result<()> {
         tokio::sync::mpsc::channel(100);
 
     // start listener
-    let _listener_loop_join_handle = std::thread::spawn(move || loop {
-        match listener_loop(
-            app_config.picovoice.clone(),
-            keywords_or_paths.clone(),
-            audio_sample_sender.clone(),
-            audio_detector_event_sender.clone(),
-        ) {
-            Ok(_) => (),
-            Err(err) => {
-                tracing::error!("Error in listener loop: {:?}", err);
+    let _listener_loop_join_handle = std::thread::spawn(move || {
+        let audio_sample_sender = audio_sample_sender.clone();
+        let audio_detector_event_sender = audio_detector_event_sender.clone();
+        loop {
+            match listener_loop(
+                app_config.picovoice.clone(),
+                keywords_or_paths.clone(),
+                audio_sample_sender.clone(),
+                audio_detector_event_sender.clone(),
+            ) {
+                Ok(()) => (),
+                Err(err) => {
+                    tracing::error!("Error in listener loop: {:?}", err);
+                }
             }
         }
     });
@@ -294,44 +344,58 @@ async fn main() -> anyhow::Result<()> {
     let open_ai_client = OpenAiClient::with_config(config);
 
     let transcript_publisher = zenoh_session
-        .declare_publisher("wakeword/event/transcript")
+        .declare_publisher(TRANSCRIPT_TOPIC)
         .res()
         .await
         .map_err(WakewordError::ZenohError)?;
 
     while let Some(audio_sample) = audio_sample_receiver.recv().await {
-        let temp_dir = TempDir::new("audio_message_temp_dir")?;
-        let temp_audio_file = temp_dir.path().join("recorded.wav");
+        match transcribe(&audio_sample, &open_ai_client).await {
+            Ok(transcript) => {
+                tracing::info!("Transcript {:?}", transcript);
 
-        audio_sample
-            .write_to_wav_file(&temp_audio_file)
-            .context("Failed to write audio sample to wav file")?;
-
-        tracing::info!("Wrote audio sample to {:?}", temp_audio_file);
-
-        let request = CreateTranscriptionRequestArgs::default()
-            .file(temp_audio_file)
-            .model(VOICE_TO_TEXT_TRANSCRIBE_MODEL)
-            .language(VOICE_TO_TEXT_TRANSCRIBE_MODEL_ENGLISH_LANGUAGE)
-            .prompt("")
-            .build()?;
-        let response = open_ai_client.audio().transcribe(request).await?;
-        tracing::info!("Transcript {}", response.text);
-
-        let transcript = AudioTranscript {
-            wake_word: audio_sample.wake_word,
-            timestamp: audio_sample.timestamp,
-            transcript: response.text,
-        };
-        let transcript_json = serde_json::to_string(&transcript)?;
-        transcript_publisher
-            .put(transcript_json)
-            .res()
-            .await
-            .map_err(WakewordError::ZenohError)?;
+                let transcript = AudioTranscript {
+                    wake_word: audio_sample.wake_word,
+                    timestamp: audio_sample.timestamp,
+                    transcript,
+                };
+                let transcript_json = serde_json::to_string(&transcript)?;
+                transcript_publisher
+                    .put(transcript_json)
+                    .res()
+                    .await
+                    .map_err(WakewordError::ZenohError)?;
+            }
+            Err(err) => {
+                tracing::error!("Error transcribing audio: {:?}", err);
+            }
+        }
     }
 
     Ok(())
+}
+
+async fn transcribe(
+    audio_sample: &AudioSample,
+    open_ai_client: &OpenAiClient<OpenAIConfig>,
+) -> anyhow::Result<String> {
+    let temp_dir = TempDir::new("audio_message_temp_dir")?;
+    let temp_audio_file = temp_dir.path().join("recorded.wav");
+
+    audio_sample
+        .write_to_wav_file(&temp_audio_file)
+        .context("Failed to write audio sample to wav file")?;
+
+    tracing::info!("Wrote audio sample to {:?}", temp_audio_file);
+
+    let request = CreateTranscriptionRequestArgs::default()
+        .file(temp_audio_file)
+        .model(VOICE_TO_TEXT_TRANSCRIBE_MODEL)
+        .language(VOICE_TO_TEXT_TRANSCRIBE_MODEL_ENGLISH_LANGUAGE)
+        .prompt("")
+        .build()?;
+    let response = open_ai_client.audio().transcribe(request).await?;
+    Ok(response.text)
 }
 
 async fn start_event_publisher(
@@ -339,45 +403,58 @@ async fn start_event_publisher(
     mut audio_detector_event_receiver: tokio::sync::mpsc::Receiver<AudioDetectorData>,
 ) -> anyhow::Result<()> {
     let voice_probability_publisher = zenoh_session
-        .declare_publisher("wakeword/event/voice_probability")
+        .declare_publisher(VOICE_PROBABILITY_TOPIC)
+        .res()
+        .await
+        .map_err(WakewordError::ZenohError)?;
+
+    let voice_probability_pretty_print_publisher = zenoh_session
+        .declare_publisher(VOICE_PROBABILITY_PRETTY_PRINT_TOPIC)
         .res()
         .await
         .map_err(WakewordError::ZenohError)?;
 
     let wake_word_detection_publisher = zenoh_session
-        .declare_publisher("wakeword/event/wake_word_detection")
+        .declare_publisher(WAKE_WORD_DETECTION_TOPIC)
+        .res()
+        .await
+        .map_err(WakewordError::ZenohError)?;
+
+    let wake_word_detection_end_publisher = zenoh_session
+        .declare_publisher(WAKE_WORD_DETECTION_END_TOPIC)
         .res()
         .await
         .map_err(WakewordError::ZenohError)?;
 
     while let Some(event) = audio_detector_event_receiver.recv().await {
         match event {
-            AudioDetectorData::VoiceProbability {
-                probability,
-                timestamp,
-            } => {
-                let voice_probability = VoiceProbability {
-                    probability,
-                    timestamp,
-                };
+            AudioDetectorData::VoiceProbability(voice_probability) => {
                 let voice_probability_json = serde_json::to_string(&voice_probability)?;
                 voice_probability_publisher
                     .put(voice_probability_json)
                     .res()
                     .await
                     .map_err(WakewordError::ZenohError)?;
+
+                let pretty_print = voice_activity_to_text(voice_probability.probability);
+                voice_probability_pretty_print_publisher
+                    .put(pretty_print)
+                    .res()
+                    .await
+                    .map_err(WakewordError::ZenohError)?;
             }
-            AudioDetectorData::WakeWordDetection {
-                wake_word,
-                timestamp,
-            } => {
-                let wake_word_detection = WakeWordDetection {
-                    wake_word,
-                    timestamp,
-                };
+            AudioDetectorData::WakeWordDetection(wake_word_detection) => {
                 let wake_word_detection_json = serde_json::to_string(&wake_word_detection)?;
                 wake_word_detection_publisher
                     .put(wake_word_detection_json)
+                    .res()
+                    .await
+                    .map_err(WakewordError::ZenohError)?;
+            }
+            AudioDetectorData::WakeWordDetectionEnd(wake_word_detection_end) => {
+                let wake_word_detection_end_json = serde_json::to_string(&wake_word_detection_end)?;
+                wake_word_detection_end_publisher
+                    .put(wake_word_detection_end_json)
                     .res()
                     .await
                     .map_err(WakewordError::ZenohError)?;
@@ -396,7 +473,7 @@ fn show_audio_devices() {
                 tracing::info!("index: {idx}, device name: {device:?}");
             }
         }
-        Err(err) => panic!("Failed to get audio devices: {}", err),
+        Err(err) => panic!("Failed to get audio devices: {:?}", err),
     };
 }
 
@@ -421,4 +498,16 @@ pub enum WakewordError {
     ZenohError(#[from] zenoh::Error),
     #[error("Cobra error {0:?}")]
     CobraError(cobra::CobraError),
+}
+
+fn voice_activity_to_text(voice_probability: f32) -> String {
+    let voice_percentage = voice_probability * 100.0;
+    let bar_length = ((voice_percentage / 10.0) * 3.0).ceil() as usize;
+    let empty_length = 30 - bar_length;
+    format!(
+        "[{:3.0}]|{}{}|",
+        voice_percentage,
+        "█".repeat(bar_length),
+        " ".repeat(empty_length)
+    )
 }
