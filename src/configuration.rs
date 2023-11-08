@@ -111,12 +111,16 @@ impl PicovoiceConfig {
     }
 
     pub fn keyword_pairs(&self) -> anyhow::Result<Vec<(String, PathBuf)>> {
-        let built_in_keywords = pv_keyword_paths();
-
         let mut selected_keywords = vec![];
 
         for built_in_keyword in self.keywords.iter().flatten() {
-            if let Some(keyword_path) = built_in_keywords.get(built_in_keyword) {
+            // only load this method if using built in keywords
+            // this will load it multiple times if multiple built in keywords are used
+            // but the issue is that this file might not be included with the binary
+            // so we don't want to prevent users who don't have the default keywords form running
+            let built_in_keyword_paths = pv_keyword_paths();
+
+            if let Some(keyword_path) = built_in_keyword_paths.get(built_in_keyword) {
                 selected_keywords.push((built_in_keyword.clone(), PathBuf::from(keyword_path)));
             } else {
                 return Err(anyhow::anyhow!(
