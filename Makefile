@@ -1,15 +1,8 @@
-TARGET_HOST ?= hopper
-TARGET_USERNAME ?= $$USER
+TARGET_HOST ?= bedroomblindspi
+TARGET_USERNAME ?= pi
 TARGET_HOST_USER ?= $(TARGET_USERNAME)@$(TARGET_HOST)
 
-REMOTE_DIRECTORY ?= ~
-DEB_BUILD_PATH ?= target/debian/hopper_*.deb
-
-TARGET_ARCH := aarch64-unknown-linux-musl
-RELEASE_BINARY_PATH := target/release/hopper
-RELEASE_CROSS_BINARY_PATH := ./target/${TARGET_ARCH}/release/hopper
-
-TARGET_PATH := ~/src/hopper_rust/
+DEB_BUILD_PATH ?= target/debian/wakeword*.deb
 
 .PHONY: build
 build:
@@ -31,7 +24,7 @@ install-dependencies:
 build-docker:
 	rm -rf docker_out
 	mkdir docker_out
-	DOCKER_BUILDKIT=1 docker build --tag hopper-builder --file Dockerfile --output type=local,dest=docker_out .
+	DOCKER_BUILDKIT=1 docker build --tag wakeword-builder --file Dockerfile --output type=local,dest=docker_out .
 
 .PHONY: push-docker-built
 push-docker-built: build-docker
