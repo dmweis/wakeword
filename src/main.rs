@@ -12,7 +12,7 @@ use async_openai::{
 };
 use clap::Parser;
 use cobra::Cobra;
-use configuration::{get_configuration, PicovoiceConfig};
+use configuration::{get_configuration, AppConfig, PicovoiceConfig};
 use porcupine::{BuiltinKeywords, PorcupineBuilder};
 use pv_recorder::PvRecorderBuilder;
 use serde::{Deserialize, Serialize};
@@ -29,14 +29,6 @@ use zenoh::prelude::r#async::*;
 
 const VOICE_TO_TEXT_TRANSCRIBE_MODEL: &str = "whisper-1";
 const VOICE_TO_TEXT_TRANSCRIBE_MODEL_ENGLISH_LANGUAGE: &str = "en";
-
-// zenoh topic
-const VOICE_PROBABILITY_TOPIC: &str = "wakeword/telemetry/voice_probability";
-const VOICE_PROBABILITY_PRETTY_PRINT_TOPIC: &str =
-    "wakeword/telemetry/voice_probability_pretty_print";
-const WAKE_WORD_DETECTION_TOPIC: &str = "wakeword/event/wake_word_detection";
-const WAKE_WORD_DETECTION_END_TOPIC: &str = "wakeword/event/wake_word_detection_end";
-const TRANSCRIPT_TOPIC: &str = "wakeword/event/transcript";
 
 struct AudioSample {
     data: Vec<i16>,
@@ -252,7 +244,7 @@ impl KeywordsOrPaths {
     }
 }
 
-/// Picovoice Porcupine Rust Mic Demo
+/// Wake Word detection application using picovoice and zenoh
 #[derive(Parser)]
 #[command(author, version)]
 struct Args {
@@ -310,10 +302,9 @@ async fn main() -> anyhow::Result<()> {
         tokio::sync::mpsc::channel(100);
 
     // start listener
-    let _listener_loop_join_handle = std::thread::spawn(move || {
-        let audio_sample_sender = audio_sample_sender.clone();
-        let audio_detector_event_sender = audio_detector_event_sender.clone();
-        loop {
+    let _listener_loop_join_handle = std::thread::spawn({
+        let app_config = app_config.clone();
+        move || loop {
             match listener_loop(
                 app_config.picovoice.clone(),
                 keywords_or_paths.clone(),
@@ -329,10 +320,15 @@ async fn main() -> anyhow::Result<()> {
     });
 
     tokio::spawn({
+        let app_config = app_config.clone();
         let zenoh_session = zenoh_session.clone();
         async move {
-            if let Err(err) =
-                start_event_publisher(zenoh_session.clone(), audio_detector_event_receiver).await
+            if let Err(err) = start_event_publisher(
+                zenoh_session.clone(),
+                app_config.app.clone(),
+                audio_detector_event_receiver,
+            )
+            .await
             {
                 tracing::error!("Error in event publisher: {:?}", err);
             }
@@ -344,7 +340,7 @@ async fn main() -> anyhow::Result<()> {
     let open_ai_client = OpenAiClient::with_config(config);
 
     let transcript_publisher = zenoh_session
-        .declare_publisher(TRANSCRIPT_TOPIC)
+        .declare_publisher(app_config.app.get_transcript_topic())
         .res()
         .await
         .map_err(WakewordError::ZenohError)?;
@@ -400,28 +396,29 @@ async fn transcribe(
 
 async fn start_event_publisher(
     zenoh_session: Arc<Session>,
+    app_config: AppConfig,
     mut audio_detector_event_receiver: tokio::sync::mpsc::Receiver<AudioDetectorData>,
 ) -> anyhow::Result<()> {
     let voice_probability_publisher = zenoh_session
-        .declare_publisher(VOICE_PROBABILITY_TOPIC)
+        .declare_publisher(app_config.get_voice_probability_topic())
         .res()
         .await
         .map_err(WakewordError::ZenohError)?;
 
     let voice_probability_pretty_print_publisher = zenoh_session
-        .declare_publisher(VOICE_PROBABILITY_PRETTY_PRINT_TOPIC)
+        .declare_publisher(app_config.get_voice_probability_pretty_print_topic())
         .res()
         .await
         .map_err(WakewordError::ZenohError)?;
 
     let wake_word_detection_publisher = zenoh_session
-        .declare_publisher(WAKE_WORD_DETECTION_TOPIC)
+        .declare_publisher(app_config.get_wake_word_detection_topic())
         .res()
         .await
         .map_err(WakewordError::ZenohError)?;
 
     let wake_word_detection_end_publisher = zenoh_session
-        .declare_publisher(WAKE_WORD_DETECTION_END_TOPIC)
+        .declare_publisher(app_config.get_wake_word_detection_end_topic())
         .res()
         .await
         .map_err(WakewordError::ZenohError)?;

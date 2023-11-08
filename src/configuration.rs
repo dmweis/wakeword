@@ -32,9 +32,47 @@ pub fn get_configuration(config: &Option<PathBuf>) -> anyhow::Result<WakewordCon
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct WakewordConfig {
+    pub app: AppConfig,
     pub picovoice: PicovoiceConfig,
     pub openai: WakeWordOpenaiConfig,
     pub zenoh: WakewordZenohConfig,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct AppConfig {
+    pub zenoh_prefix: String,
+}
+
+// zenoh topic
+const VOICE_PROBABILITY_TOPIC: &str = "telemetry/voice_probability";
+const VOICE_PROBABILITY_PRETTY_PRINT_TOPIC: &str = "telemetry/voice_probability_pretty_print";
+const WAKE_WORD_DETECTION_TOPIC: &str = "event/wake_word_detection";
+const WAKE_WORD_DETECTION_END_TOPIC: &str = "event/wake_word_detection_end";
+const TRANSCRIPT_TOPIC: &str = "event/transcript";
+
+impl AppConfig {
+    pub fn get_voice_probability_topic(&self) -> String {
+        format!("{}/{}", self.zenoh_prefix, VOICE_PROBABILITY_TOPIC)
+    }
+
+    pub fn get_voice_probability_pretty_print_topic(&self) -> String {
+        format!(
+            "{}/{}",
+            self.zenoh_prefix, VOICE_PROBABILITY_PRETTY_PRINT_TOPIC
+        )
+    }
+
+    pub fn get_wake_word_detection_topic(&self) -> String {
+        format!("{}/{}", self.zenoh_prefix, WAKE_WORD_DETECTION_TOPIC)
+    }
+
+    pub fn get_wake_word_detection_end_topic(&self) -> String {
+        format!("{}/{}", self.zenoh_prefix, WAKE_WORD_DETECTION_END_TOPIC)
+    }
+
+    pub fn get_transcript_topic(&self) -> String {
+        format!("{}/{}", self.zenoh_prefix, TRANSCRIPT_TOPIC)
+    }
 }
 
 #[derive(Deserialize, Debug, Clone)]

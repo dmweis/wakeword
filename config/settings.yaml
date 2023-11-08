@@ -1,3 +1,5 @@
+app:
+  zenoh_prefix: "wakeword"
 picovoice:
   access_key: "ACCESS_KEY"
 openai:
