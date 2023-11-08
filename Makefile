@@ -8,12 +8,22 @@ DEB_BUILD_PATH ?= target/debian/wakeword*.deb
 build:
 	cargo build --release
 
+.PHONY: copy-include-files
+copy-include-files:
+	rm -rf include
+	mkdir -p include/default_keyword_files/
+	cp target/release/build/pv_cobra-*/out/lib/raspberry-pi/cortex-a72-aarch64/libpv_cobra.so include/libpv_cobra.so
+	cp target/release/build/pv_porcupine-*/out/lib/raspberry-pi/cortex-a72-aarch64/libpv_porcupine.so include/libpv_porcupine.so
+	cp target/release/build/pv_recorder-*/out/lib/raspberry-pi/cortex-a72-aarch64/libpv_recorder.so include/libpv_recorder.so
+	cp target/release/build/pv_porcupine-*/out/lib/common/porcupine_params.pv include/porcupine_params.pv
+	cp target/release/build/pv_porcupine-*/out/resources/keyword_files/raspberry-pi/* include/default_keyword_files/
+
 .PHONY: build-deb
-build-deb: build
+build-deb: build copy-include-files
 	cargo deb --no-build
 
 .PHONE: install
-install: build-deb
+install: build-deb 
 	sudo dpkg -i $(DEB_BUILD_PATH)
 
 .PHONY: install-dependencies

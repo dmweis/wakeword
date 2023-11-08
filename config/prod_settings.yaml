@@ -1,0 +1,24 @@
+app:
+  zenoh_prefix: "wakeword"
+picovoice:
+  access_key: "ACCESS_KEY"
+  audio_device_index: -1
+  keyword_paths:
+    "Hey Hopper": "/var/lib/wakeword/keyword_files/Hey-Hopper_en_raspberry-pi_v3_0_0.ppn"
+    "bumblebee": "/var/lib/wakeword/default_keyword_files/bumblebee_raspberry-pi.ppn"
+  # Default keywords aren't portable
+  # keywords:
+  #  - "bumblebee"
+  # These libraries aren't very portable so copying them here fixes that
+  cobra_lib_path: /var/lib/wakeword/libpv_cobra.so
+  porcupine_lib_path: /var/lib/wakeword/libpv_porcupine.so
+  recorder_lib_path: /var/lib/wakeword/libpv_recorder.so
+  model_path: /var/lib/wakeword/porcupine_params.pv
+openai:
+  api_key: "API_KEY"
+zenoh:
+  connect:
+    - "tcp/SOME_IP:7447"
+  listen:
+    - "tcp/0.0.0.0:7447"
+    - "udp/0.0.0.0:7448"

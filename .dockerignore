@@ -4,6 +4,7 @@
 .dockerignore
 
 target/
+include/
 Dockerfile
 
 dev_settings.yaml

@@ -43,6 +43,14 @@ COPY . .
 
 # Build
 RUN cargo build --release
+
+RUN mkdir -p /app/include/default_keyword_files/
+RUN cp /app/target/release/build/pv_cobra-*/out/lib/raspberry-pi/cortex-a72-aarch64/libpv_cobra.so /app/include/libpv_cobra.so
+RUN cp /app/target/release/build/pv_porcupine-*/out/lib/raspberry-pi/cortex-a72-aarch64/libpv_porcupine.so /app/include/libpv_porcupine.so
+RUN cp /app/target/release/build/pv_recorder-*/out/lib/raspberry-pi/cortex-a72-aarch64/libpv_recorder.so /app/include/libpv_recorder.so
+RUN cp /app/target/release/build/pv_porcupine-*/out/lib/common/porcupine_params.pv /app/include/porcupine_params.pv
+RUN cp /app/target/release/build/pv_porcupine-*/out/resources/keyword_files/raspberry-pi/* /app/include/default_keyword_files/
+
 RUN cargo deb --no-build --fast
 
 # Copy to exporter
