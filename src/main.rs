@@ -371,7 +371,21 @@ async fn main() -> anyhow::Result<()> {
         .map_err(WakewordError::ZenohError)?;
 
     while let Some(audio_sample) = audio_sample_receiver.recv().await {
-        match transcribe(&audio_sample, &open_ai_client).await {
+        let system_prompt = app_config.app.system_prompts.get(&audio_sample.wake_word);
+
+        let system_prompt = match system_prompt {
+            Some(sys) => sys.as_str(),
+            None => {
+                tracing::warn!(
+                    "No system prompt for wake word {:?}",
+                    audio_sample.wake_word
+                );
+                // return empty string
+                ""
+            }
+        };
+
+        match transcribe(&audio_sample, system_prompt, &open_ai_client).await {
             Ok(transcript) => {
                 tracing::info!("Transcript {:?}", transcript);
 
@@ -398,6 +412,7 @@ async fn main() -> anyhow::Result<()> {
 
 async fn transcribe(
     audio_sample: &AudioSample,
+    system_prompt: &str,
     open_ai_client: &OpenAiClient<OpenAIConfig>,
 ) -> anyhow::Result<String> {
     let temp_dir = TempDir::new("audio_message_temp_dir")?;
@@ -413,7 +428,7 @@ async fn transcribe(
         .file(temp_audio_file)
         .model(VOICE_TO_TEXT_TRANSCRIBE_MODEL)
         .language(VOICE_TO_TEXT_TRANSCRIBE_MODEL_ENGLISH_LANGUAGE)
-        .prompt("")
+        .prompt(system_prompt)
         .build()?;
     let response = open_ai_client.audio().transcribe(request).await?;
     Ok(response.text)

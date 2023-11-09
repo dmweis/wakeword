@@ -46,6 +46,8 @@ pub struct WakewordConfig {
 #[derive(Deserialize, Debug, Clone)]
 pub struct AppConfig {
     pub zenoh_prefix: String,
+    #[serde(default)]
+    pub system_prompts: HashMap<String, String>,
 }
 
 // zenoh topic
