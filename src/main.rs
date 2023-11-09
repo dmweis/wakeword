@@ -18,7 +18,10 @@ use pv_recorder::PvRecorderBuilder;
 use serde::{Deserialize, Serialize};
 use std::{
     path::Path,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 use tempdir::TempDir;
@@ -28,6 +31,8 @@ use zenoh::prelude::r#async::*;
 
 const VOICE_TO_TEXT_TRANSCRIBE_MODEL: &str = "whisper-1";
 const VOICE_TO_TEXT_TRANSCRIBE_MODEL_ENGLISH_LANGUAGE: &str = "en";
+
+static PRIVACY_MODE: AtomicBool = AtomicBool::new(false);
 
 struct AudioSample {
     data: Vec<i16>,
@@ -53,6 +58,11 @@ impl AudioSample {
         }
         Ok(())
     }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct PrivacyModeCommand {
+    privacy_mode: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -155,6 +165,13 @@ fn listener_loop(
     loop {
         let timestamp = chrono::Utc::now();
         let frame = recorder.read().context("Failed to read audio frame")?;
+
+        if PRIVACY_MODE.load(Ordering::Relaxed) {
+            // stop any recording
+            currently_recording = false;
+            audio_buffer.clear();
+            continue;
+        }
 
         // wake word detection
         let keyword_index = porcupine
@@ -301,6 +318,28 @@ async fn main() -> anyhow::Result<()> {
                 Err(err) => {
                     tracing::error!("Error in listener loop: {:?}", err);
                 }
+            }
+        }
+    });
+
+    let privacy_mode_subscriber = zenoh_session
+        .declare_subscriber(app_config.app.get_privacy_mode_topic())
+        .res()
+        .await
+        .map_err(WakewordError::ZenohError)?;
+
+    tokio::spawn(async move {
+        loop {
+            let res: anyhow::Result<()> = async {
+                let msg = privacy_mode_subscriber.recv_async().await?;
+                let msg: String = msg.value.try_into()?;
+                let privacy_mode: PrivacyModeCommand = serde_json::from_str(&msg)?;
+                PRIVACY_MODE.store(privacy_mode.privacy_mode, Ordering::Relaxed);
+                Ok(())
+            }
+            .await;
+            if let Err(err) = res {
+                tracing::error!("Error in privacy mode subscriber: {:?}", err);
             }
         }
     });

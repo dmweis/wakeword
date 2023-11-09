@@ -9,6 +9,8 @@ Get OpenAI API key from <https://platform.openai.com/api-keys>
 
 `z_sub --key "wakeword/event/**"`  
 
+`z_put -k wakeword/control/privacy_mode -v '{ "privacy_mode": false }'`  
+
 ## Docs for used libraries
 
 [pv_porcupine](https://docs.rs/pv_porcupine)  

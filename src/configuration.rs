@@ -54,6 +54,7 @@ const VOICE_PROBABILITY_PRETTY_PRINT_TOPIC: &str = "telemetry/voice_probability_
 const WAKE_WORD_DETECTION_TOPIC: &str = "event/wake_word_detection";
 const WAKE_WORD_DETECTION_END_TOPIC: &str = "event/wake_word_detection_end";
 const TRANSCRIPT_TOPIC: &str = "event/transcript";
+const PRIVACY_MODE_TOPIC: &str = "control/privacy_mode";
 
 impl AppConfig {
     pub fn get_voice_probability_topic(&self) -> String {
@@ -77,6 +78,10 @@ impl AppConfig {
 
     pub fn get_transcript_topic(&self) -> String {
         format!("{}/{}", self.zenoh_prefix, TRANSCRIPT_TOPIC)
+    }
+
+    pub fn get_privacy_mode_topic(&self) -> String {
+        format!("{}/{}", self.zenoh_prefix, PRIVACY_MODE_TOPIC)
     }
 }
 
