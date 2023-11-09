@@ -148,8 +148,8 @@ fn listener_loop(
     const HUMAN_SPEECH_DETECTION_PROBABILITY_THRESHOLD: f32 = 0.5;
 
     let mut last_human_speech_detected = Instant::now();
-    let mut last_wake_word_timestamp = chrono::Utc::now();
-    let mut last_wake_word = String::new();
+    let mut triggering_wake_word_timestamp = chrono::Utc::now();
+    let mut triggering_wake_word = String::new();
     let mut currently_recording = false;
     let mut audio_buffer = Vec::new();
     loop {
@@ -163,21 +163,25 @@ fn listener_loop(
 
         let wake_word_detected = keyword_index >= 0;
         if wake_word_detected {
-            // flit to true if we detect a wake word
+            // don't update wake word if we're already recording
+            if !currently_recording {
+                triggering_wake_word_timestamp = timestamp;
+                triggering_wake_word = selected_keywords
+                    .get(keyword_index as usize)
+                    .context("Keyword index unknown")?
+                    .0
+                    .clone();
+            }
+            // flip to true if we detect a wake word
             currently_recording = true;
-            last_wake_word_timestamp = timestamp;
-            last_wake_word = selected_keywords
-                .get(keyword_index as usize)
-                .context("Keyword index unknown")?
-                .0
-                .clone();
+
             // also bump this to prevent going to sleep if human detection is slow
             last_human_speech_detected = Instant::now();
 
-            tracing::info!("Detected {:?}", last_wake_word);
+            tracing::info!("Detected {:?}", triggering_wake_word);
 
             let event = AudioDetectorData::WakeWordDetection(WakeWordDetection {
-                wake_word: last_wake_word.clone(),
+                wake_word: triggering_wake_word.clone(),
                 timestamp,
             });
             if let Err(TrySendError::Closed(_)) = audio_detector_data.try_send(event) {
@@ -219,9 +223,9 @@ fn listener_loop(
             currently_recording = false;
             let audio_sample = AudioSample {
                 data: audio_buffer.clone(),
-                wake_word: last_wake_word.clone(),
+                wake_word: triggering_wake_word.clone(),
                 sample_rate: porcupine.sample_rate(),
-                timestamp: last_wake_word_timestamp,
+                timestamp: triggering_wake_word_timestamp,
             };
             audio_buffer.clear();
 
@@ -231,8 +235,8 @@ fn listener_loop(
             }
 
             let event = AudioDetectorData::WakeWordDetectionEnd(WakeWordDetectionEnd {
-                wake_word: last_wake_word.clone(),
-                timestamp: last_wake_word_timestamp,
+                wake_word: triggering_wake_word.clone(),
+                timestamp: triggering_wake_word_timestamp,
             });
             if let Err(TrySendError::Closed(_)) = audio_detector_data.try_send(event) {
                 anyhow::bail!("Audio detector channel closed");
