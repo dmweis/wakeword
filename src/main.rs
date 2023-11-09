@@ -426,12 +426,16 @@ async fn start_event_publisher(
 ) -> anyhow::Result<()> {
     let voice_probability_publisher = zenoh_session
         .declare_publisher(app_config.get_voice_probability_topic())
+        .priority(Priority::InteractiveLow)
+        .congestion_control(CongestionControl::Drop)
         .res()
         .await
         .map_err(WakewordError::ZenohError)?;
 
     let voice_probability_pretty_print_publisher = zenoh_session
         .declare_publisher(app_config.get_voice_probability_pretty_print_topic())
+        .priority(Priority::InteractiveLow)
+        .congestion_control(CongestionControl::Drop)
         .res()
         .await
         .map_err(WakewordError::ZenohError)?;
