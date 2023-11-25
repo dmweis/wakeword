@@ -1,10 +1,15 @@
 app:
   zenoh_prefix: "wakeword"
+    system_prompts:
+    "Hey Hopper": "You are a hexapod pet robot called Hopper. You can high five, fold, stand up, sit down. You can also do dance. Or change your face to an animation of the larson scanner."
+    "Hopper Stop": "You are a hexapod pet robot called Hopper. You can high five, fold, stand up, sit down. You can also do dance. Or change your face to an animation of the larson scanner."
+    "bumblebee": "You are a hexapod pet robot called Hopper. You can high five, fold, stand up, sit down. You can also do dance. Or change your face to an animation of the larson scanner."
 picovoice:
   access_key: "ACCESS_KEY"
   audio_device_index: -1
   keyword_paths:
     "Hey Hopper": "/var/lib/wakeword/keyword_files/Hey-Hopper_en_raspberry-pi_v3_0_0.ppn"
+    "Hopper Stop": "/var/lib/wakeword/keyword_files/Hopper-Stop_en_raspberry-pi_v3_0_0.ppn"
     "bumblebee": "/var/lib/wakeword/default_keyword_files/bumblebee_raspberry-pi.ppn"
   # Default keywords aren't portable
   # keywords:
