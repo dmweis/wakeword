@@ -287,13 +287,18 @@ async fn main() -> anyhow::Result<()> {
     let _listener_loop_join_handle = std::thread::spawn({
         let app_config = app_config.clone();
 
-        let listener = Listener::new(
-            app_config.picovoice.clone(),
-            audio_sample_sender.clone(),
-            audio_detector_event_sender.clone(),
-        )?;
-
         move || loop {
+            let listener = match Listener::new(
+                app_config.picovoice.clone(),
+                audio_sample_sender.clone(),
+                audio_detector_event_sender.clone(),
+            ) {
+                Ok(listener) => listener,
+                Err(err) => {
+                    tracing::error!("Error while creating listener {:?}", err);
+                    continue;
+                }
+            };
             match listener.listener_loop() {
                 Ok(()) => (),
                 Err(err) => {
