@@ -1,7 +1,7 @@
 [package]
 authors = ["David Weis <dweis7@gmail.com>"]
 name = "wakeword"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "Wakeword detector for the Picovoice Porcupine engine"
 license = "MIT OR APACHE"
@@ -51,6 +51,11 @@ assets = [
   ],
   [
     "keywords/Hey-Hopper_en_raspberry-pi_v3_0_0.ppn",
+    "/var/lib/wakeword/keyword_files/",
+    "644",
+  ],
+  [
+    "keywords/Hopper-Stop_en_raspberry-pi_v3_0_0.ppn",
     "/var/lib/wakeword/keyword_files/",
     "644",
   ],
