@@ -5,6 +5,7 @@
 //! By the excellent folks at https://picovoice.ai/
 
 mod configuration;
+mod messages;
 
 use anyhow::Context;
 use async_openai::{
@@ -12,12 +13,9 @@ use async_openai::{
 };
 use clap::Parser;
 use cobra::Cobra;
-use configuration::{get_configuration, AppConfig, PicovoiceConfig};
 use porcupine::PorcupineBuilder;
 use pv_recorder::PvRecorderBuilder;
-use serde::{Deserialize, Serialize};
 use std::{
-    path::Path,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -29,67 +27,17 @@ use thiserror::Error;
 use tokio::sync::mpsc::error::TrySendError;
 use zenoh::prelude::r#async::*;
 
+use configuration::{get_configuration, AppConfig, PicovoiceConfig};
+
+use messages::{
+    AudioSample, AudioTranscript, PrivacyModeCommand, VoiceProbability, WakeWordDetection,
+    WakeWordDetectionEnd,
+};
+
 const VOICE_TO_TEXT_TRANSCRIBE_MODEL: &str = "whisper-1";
 const VOICE_TO_TEXT_TRANSCRIBE_MODEL_ENGLISH_LANGUAGE: &str = "en";
 
 static PRIVACY_MODE: AtomicBool = AtomicBool::new(false);
-
-struct AudioSample {
-    data: Vec<i16>,
-    wake_word: String,
-    sample_rate: u32,
-    timestamp: chrono::DateTime<chrono::Utc>,
-}
-
-impl AudioSample {
-    fn write_to_wav_file(&self, output_path: &Path) -> anyhow::Result<()> {
-        let wavspec = hound::WavSpec {
-            channels: 1,
-            sample_rate: self.sample_rate,
-            bits_per_sample: 16,
-            sample_format: hound::SampleFormat::Int,
-        };
-        let mut writer = hound::WavWriter::create(output_path, wavspec)
-            .context("Failed to open output audio file")?;
-        for sample in &self.data {
-            writer
-                .write_sample(*sample)
-                .context("Failed to write sample")?;
-        }
-        Ok(())
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct PrivacyModeCommand {
-    privacy_mode: bool,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct VoiceProbability {
-    /// 0.0 to 1.0
-    probability: f32,
-    timestamp: chrono::DateTime<chrono::Utc>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct WakeWordDetection {
-    wake_word: String,
-    timestamp: chrono::DateTime<chrono::Utc>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct WakeWordDetectionEnd {
-    wake_word: String,
-    timestamp: chrono::DateTime<chrono::Utc>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct AudioTranscript {
-    wake_word: String,
-    timestamp: chrono::DateTime<chrono::Utc>,
-    transcript: String,
-}
 
 enum AudioDetectorData {
     VoiceProbability(VoiceProbability),
