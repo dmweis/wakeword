@@ -1,5 +1,6 @@
+use anyhow::Context;
 use config::Config;
-use porcupine::{util::pv_keyword_paths, BuiltinKeywords};
+use porcupine::{util::pv_keyword_paths, BuiltinKeywords, Porcupine, PorcupineBuilder};
 use serde::Deserialize;
 use std::{
     collections::HashMap,
@@ -154,6 +155,30 @@ impl PicovoiceConfig {
         }
 
         Ok(selected_keywords)
+    }
+
+    pub fn build_porcupine(&self) -> anyhow::Result<Porcupine> {
+        let selected_keywords = self.keyword_pairs()?;
+        let keyword_paths = selected_keywords
+            .iter()
+            .map(|(_, path)| path)
+            .collect::<Vec<_>>();
+
+        let mut porcupine_builder =
+            PorcupineBuilder::new_with_keyword_paths(&self.access_key, &keyword_paths);
+        if let Some(sensitivities) = &self.sensitivities {
+            porcupine_builder.sensitivities(sensitivities);
+        }
+        if let Some(model_path) = &self.model_path {
+            porcupine_builder.model_path(model_path);
+        }
+        if let Some(porcupine_lib_path) = &self.porcupine_lib_path {
+            porcupine_builder.library_path(porcupine_lib_path);
+        }
+        let porcupine = porcupine_builder
+            .init()
+            .context("Failed to create Porcupine")?;
+        Ok(porcupine)
     }
 }
 

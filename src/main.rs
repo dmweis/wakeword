@@ -13,7 +13,7 @@ use async_openai::{
 };
 use clap::Parser;
 use cobra::Cobra;
-use porcupine::{Porcupine, PorcupineBuilder};
+use porcupine::Porcupine;
 use pv_recorder::{PvRecorder, PvRecorderBuilder};
 use std::{
     path::PathBuf,
@@ -64,26 +64,8 @@ impl Listener {
         audio_detector_data: tokio::sync::mpsc::Sender<AudioDetectorData>,
     ) -> anyhow::Result<Self> {
         let selected_keywords = config.keyword_pairs()?;
-        let keyword_paths = selected_keywords
-            .iter()
-            .map(|(_, path)| path)
-            .collect::<Vec<_>>();
 
-        // build porcupine
-        let mut porcupine_builder =
-            PorcupineBuilder::new_with_keyword_paths(&config.access_key, &keyword_paths);
-        if let Some(sensitivities) = config.sensitivities {
-            porcupine_builder.sensitivities(&sensitivities);
-        }
-        if let Some(model_path) = config.model_path {
-            porcupine_builder.model_path(model_path);
-        }
-        if let Some(porcupine_lib_path) = config.porcupine_lib_path {
-            porcupine_builder.library_path(porcupine_lib_path);
-        }
-        let porcupine = porcupine_builder
-            .init()
-            .context("Failed to create Porcupine")?;
+        let porcupine = config.build_porcupine()?;
 
         let cobra = if let Some(cobra_lib_path) = config.cobra_lib_path {
             Cobra::new_with_library(config.access_key, cobra_lib_path)
