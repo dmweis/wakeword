@@ -54,7 +54,8 @@ pub struct AppConfig {
 const VOICE_PROBABILITY_TOPIC: &str = "telemetry/voice_probability";
 const VOICE_PROBABILITY_PRETTY_PRINT_TOPIC: &str = "telemetry/voice_probability_pretty_print";
 const WAKE_WORD_DETECTION_TOPIC: &str = "event/wake_word_detection";
-const WAKE_WORD_DETECTION_END_TOPIC: &str = "event/wake_word_detection_end";
+const WAKE_WORD_RECORDING_STARTED_TOPIC: &str = "event/recording_started";
+const WAKE_WORD_RECORDING_END_TOPIC: &str = "event/wake_word_detection_end";
 const TRANSCRIPT_TOPIC: &str = "event/transcript";
 const PRIVACY_MODE_TOPIC: &str = "control/privacy_mode";
 
@@ -70,12 +71,19 @@ impl AppConfig {
         )
     }
 
-    pub fn get_wake_word_detection_topic(&self) -> String {
+    pub fn get_wake_word_detected_topic(&self) -> String {
         format!("{}/{}", self.zenoh_prefix, WAKE_WORD_DETECTION_TOPIC)
     }
 
-    pub fn get_wake_word_detection_end_topic(&self) -> String {
-        format!("{}/{}", self.zenoh_prefix, WAKE_WORD_DETECTION_END_TOPIC)
+    pub fn get_wake_word_recording_started_topic(&self) -> String {
+        format!(
+            "{}/{}",
+            self.zenoh_prefix, WAKE_WORD_RECORDING_STARTED_TOPIC
+        )
+    }
+
+    pub fn get_wake_word_recording_end_topic(&self) -> String {
+        format!("{}/{}", self.zenoh_prefix, WAKE_WORD_RECORDING_END_TOPIC)
     }
 
     pub fn get_transcript_topic(&self) -> String {

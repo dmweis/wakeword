@@ -43,8 +43,9 @@ static PRIVACY_MODE: AtomicBool = AtomicBool::new(false);
 
 enum AudioDetectorData {
     VoiceProbability(VoiceProbability),
-    WakeWordDetection(WakeWordDetection),
-    WakeWordDetectionEnd(WakeWordDetectionEnd),
+    RecordingStarted(WakeWordDetection),
+    WakeWordDetected(WakeWordDetection),
+    RecordingEnd(WakeWordDetectionEnd),
 }
 
 struct Listener {
@@ -68,21 +69,18 @@ impl Listener {
             .map(|(_, path)| path)
             .collect::<Vec<_>>();
 
+        // build porcupine
         let mut porcupine_builder =
             PorcupineBuilder::new_with_keyword_paths(&config.access_key, &keyword_paths);
-
         if let Some(sensitivities) = config.sensitivities {
             porcupine_builder.sensitivities(&sensitivities);
         }
-
         if let Some(model_path) = config.model_path {
             porcupine_builder.model_path(model_path);
         }
-
         if let Some(porcupine_lib_path) = config.porcupine_lib_path {
             porcupine_builder.library_path(porcupine_lib_path);
         }
-
         let porcupine = porcupine_builder
             .init()
             .context("Failed to create Porcupine")?;
@@ -124,18 +122,49 @@ impl Listener {
         Ok(listener)
     }
 
+    /// detect if wake word is present in sample
+    fn detect_wake_word(&self, audio_frame: &[i16]) -> anyhow::Result<Option<String>> {
+        let keyword_index = self
+            .porcupine
+            .process(audio_frame)
+            .context("Failed to process audio frame")?;
+
+        let wake_word_detected = keyword_index >= 0;
+        if wake_word_detected {
+            let wake_word = self
+                .selected_keywords
+                .get(keyword_index as usize)
+                .context("Keyword index unknown")?
+                .0
+                .clone();
+            Ok(Some(wake_word))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn send_event(&self, event: AudioDetectorData) -> anyhow::Result<()> {
+        if let Err(TrySendError::Closed(_)) = self.audio_detector_data.try_send(event) {
+            anyhow::bail!("Audio detector channel closed");
+        }
+        Ok(())
+    }
+
     fn listener_loop(&self) -> anyhow::Result<()> {
         tracing::info!("Listening for wake words...");
 
-        let mut last_human_speech_detected = Instant::now();
-        let mut triggering_wake_word_timestamp = chrono::Utc::now();
-        let mut triggering_wake_word = String::new();
-        let mut currently_recording = false;
         let mut audio_buffer = Vec::new();
-        loop {
-            let timestamp = chrono::Utc::now();
-            let frame = self.recorder.read().context("Failed to read audio frame")?;
 
+        let mut recording_triggering_timestamp = chrono::Utc::now();
+        let mut recording_triggering_wake_word = String::new();
+        let mut currently_recording = false;
+
+        let mut last_human_speech_detected = Instant::now();
+        loop {
+            let ts_now = chrono::Utc::now();
+            let audio_frame = self.recorder.read().context("Failed to read audio frame")?;
+
+            // skip in privacy mode
             if PRIVACY_MODE.load(Ordering::Relaxed) {
                 // stop any recording
                 currently_recording = false;
@@ -144,22 +173,18 @@ impl Listener {
             }
 
             // wake word detection
-            let keyword_index = self
-                .porcupine
-                .process(&frame)
-                .context("Failed to process audio frame")?;
-
-            let wake_word_detected = keyword_index >= 0;
-            if wake_word_detected {
+            let detected_wake_word = self.detect_wake_word(&audio_frame)?;
+            if let Some(detected_wake_word) = detected_wake_word {
                 // don't update wake word if we're already recording
                 if !currently_recording {
-                    triggering_wake_word_timestamp = timestamp;
-                    triggering_wake_word = self
-                        .selected_keywords
-                        .get(keyword_index as usize)
-                        .context("Keyword index unknown")?
-                        .0
-                        .clone();
+                    recording_triggering_timestamp = ts_now;
+                    recording_triggering_wake_word = detected_wake_word.clone();
+                    // only send event when we start recording
+                    let event = AudioDetectorData::RecordingStarted(WakeWordDetection {
+                        wake_word: recording_triggering_wake_word.clone(),
+                        timestamp: ts_now,
+                    });
+                    self.send_event(event)?;
                 }
                 // flip to true if we detect a wake word
                 currently_recording = true;
@@ -167,38 +192,35 @@ impl Listener {
                 // also bump this to prevent going to sleep if human detection is slow
                 last_human_speech_detected = Instant::now();
 
-                tracing::info!("Detected {:?}", triggering_wake_word);
+                tracing::info!("Detected {:?}", detected_wake_word);
 
-                let event = AudioDetectorData::WakeWordDetection(WakeWordDetection {
-                    wake_word: triggering_wake_word.clone(),
-                    timestamp,
+                let event = AudioDetectorData::WakeWordDetected(WakeWordDetection {
+                    wake_word: detected_wake_word.clone(),
+                    timestamp: ts_now,
                 });
-                if let Err(TrySendError::Closed(_)) = self.audio_detector_data.try_send(event) {
-                    anyhow::bail!("Audio detector channel closed");
-                }
+                self.send_event(event)?;
             }
 
             // voice probability
             let voice_probability = self
                 .cobra
-                .process(&frame)
+                .process(&audio_frame)
                 .map_err(WakewordError::CobraError)
                 .context("Cobra processing failed")?;
 
             // send event
             let event = AudioDetectorData::VoiceProbability(VoiceProbability {
                 probability: voice_probability,
-                timestamp,
+                timestamp: ts_now,
             });
-            if let Err(TrySendError::Closed(_)) = self.audio_detector_data.try_send(event) {
-                anyhow::bail!("Audio detector channel closed");
-            }
+            self.send_event(event)?;
 
-            // handle recording
+            // Add sample to buffer
             if currently_recording {
-                audio_buffer.extend_from_slice(&frame);
+                audio_buffer.extend_from_slice(&audio_frame);
             }
 
+            // Check human speech presence
             let human_speech_detected =
                 voice_probability > HUMAN_SPEECH_DETECTION_PROBABILITY_THRESHOLD;
             if human_speech_detected {
@@ -213,10 +235,11 @@ impl Listener {
                 currently_recording = false;
                 let audio_sample = AudioSample {
                     data: audio_buffer.clone(),
-                    wake_word: triggering_wake_word.clone(),
+                    wake_word: recording_triggering_wake_word.clone(),
                     sample_rate: self.porcupine.sample_rate(),
-                    timestamp: triggering_wake_word_timestamp,
+                    timestamp: recording_triggering_timestamp,
                 };
+                // erase audio buffer after sending
                 audio_buffer.clear();
 
                 tracing::info!("Sending audio sample");
@@ -226,13 +249,11 @@ impl Listener {
                     anyhow::bail!("Audio sample channel closed");
                 }
 
-                let event = AudioDetectorData::WakeWordDetectionEnd(WakeWordDetectionEnd {
-                    wake_word: triggering_wake_word.clone(),
-                    timestamp: triggering_wake_word_timestamp,
+                let event = AudioDetectorData::RecordingEnd(WakeWordDetectionEnd {
+                    wake_word: recording_triggering_wake_word.clone(),
+                    timestamp: recording_triggering_timestamp,
                 });
-                if let Err(TrySendError::Closed(_)) = self.audio_detector_data.try_send(event) {
-                    anyhow::bail!("Audio detector channel closed");
-                }
+                self.send_event(event)?;
             }
         }
 
@@ -434,14 +455,20 @@ async fn start_event_publisher(
         .await
         .map_err(WakewordError::ZenohError)?;
 
+    let recording_started_publisher = zenoh_session
+        .declare_publisher(app_config.get_wake_word_recording_started_topic())
+        .res()
+        .await
+        .map_err(WakewordError::ZenohError)?;
+
     let wake_word_detection_publisher = zenoh_session
-        .declare_publisher(app_config.get_wake_word_detection_topic())
+        .declare_publisher(app_config.get_wake_word_detected_topic())
         .res()
         .await
         .map_err(WakewordError::ZenohError)?;
 
     let wake_word_detection_end_publisher = zenoh_session
-        .declare_publisher(app_config.get_wake_word_detection_end_topic())
+        .declare_publisher(app_config.get_wake_word_recording_end_topic())
         .res()
         .await
         .map_err(WakewordError::ZenohError)?;
@@ -463,7 +490,7 @@ async fn start_event_publisher(
                     .await
                     .map_err(WakewordError::ZenohError)?;
             }
-            AudioDetectorData::WakeWordDetection(wake_word_detection) => {
+            AudioDetectorData::WakeWordDetected(wake_word_detection) => {
                 let wake_word_detection_json = serde_json::to_string(&wake_word_detection)?;
                 wake_word_detection_publisher
                     .put(wake_word_detection_json)
@@ -471,7 +498,15 @@ async fn start_event_publisher(
                     .await
                     .map_err(WakewordError::ZenohError)?;
             }
-            AudioDetectorData::WakeWordDetectionEnd(wake_word_detection_end) => {
+            AudioDetectorData::RecordingStarted(wake_word_detection) => {
+                let wake_word_detection_json = serde_json::to_string(&wake_word_detection)?;
+                recording_started_publisher
+                    .put(wake_word_detection_json)
+                    .res()
+                    .await
+                    .map_err(WakewordError::ZenohError)?;
+            }
+            AudioDetectorData::RecordingEnd(wake_word_detection_end) => {
                 let wake_word_detection_end_json = serde_json::to_string(&wake_word_detection_end)?;
                 wake_word_detection_end_publisher
                     .put(wake_word_detection_end_json)
