@@ -31,7 +31,6 @@ use zenoh::prelude::r#async::*;
 use configuration::{get_configuration, AppConfig, PicovoiceConfig};
 use messages::{
     AudioSample, AudioTranscript, PrivacyModeCommand, VoiceProbability, WakeWordDetection,
-    WakeWordDetectionEnd,
 };
 
 const VOICE_TO_TEXT_TRANSCRIBE_MODEL: &str = "whisper-1";
@@ -45,7 +44,7 @@ enum AudioDetectorData {
     VoiceProbability(VoiceProbability),
     RecordingStarted(WakeWordDetection),
     WakeWordDetected(WakeWordDetection),
-    RecordingEnd(WakeWordDetectionEnd),
+    RecordingEnd(WakeWordDetection),
 }
 
 struct Listener {
@@ -231,7 +230,7 @@ impl Listener {
                     anyhow::bail!("Audio sample channel closed");
                 }
 
-                let event = AudioDetectorData::RecordingEnd(WakeWordDetectionEnd {
+                let event = AudioDetectorData::RecordingEnd(WakeWordDetection {
                     wake_word: recording_triggering_wake_word.clone(),
                     timestamp: recording_triggering_timestamp,
                 });

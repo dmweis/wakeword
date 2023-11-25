@@ -47,12 +47,6 @@ pub struct WakeWordDetection {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct WakeWordDetectionEnd {
-    pub wake_word: String,
-    pub timestamp: chrono::DateTime<chrono::Utc>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
 pub struct AudioTranscript {
     pub wake_word: String,
     pub timestamp: chrono::DateTime<chrono::Utc>,
