@@ -37,13 +37,31 @@ pub struct PrivacyModeCommand {
 pub struct VoiceProbability {
     /// 0.0 to 1.0
     pub probability: f32,
-    pub timestamp: chrono::DateTime<chrono::Utc>,
+    timestamp: chrono::DateTime<chrono::Utc>,
+}
+
+impl VoiceProbability {
+    pub fn new(probability: f32, timestamp: chrono::DateTime<chrono::Utc>) -> Self {
+        Self {
+            probability,
+            timestamp,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct WakeWordDetection {
-    pub wake_word: String,
-    pub timestamp: chrono::DateTime<chrono::Utc>,
+    wake_word: String,
+    timestamp: chrono::DateTime<chrono::Utc>,
+}
+
+impl WakeWordDetection {
+    pub fn new(wake_word: String, timestamp: chrono::DateTime<chrono::Utc>) -> Self {
+        Self {
+            wake_word,
+            timestamp,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]

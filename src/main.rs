@@ -161,10 +161,10 @@ impl Listener {
                     recording_triggering_timestamp = ts_now;
                     recording_triggering_wake_word = detected_wake_word.clone();
                     // only send event when we start recording
-                    let event = AudioDetectorData::RecordingStarted(WakeWordDetection {
-                        wake_word: recording_triggering_wake_word.clone(),
-                        timestamp: ts_now,
-                    });
+                    let event = AudioDetectorData::RecordingStarted(WakeWordDetection::new(
+                        recording_triggering_wake_word.clone(),
+                        ts_now,
+                    ));
                     self.send_event(event)?;
                 }
                 // flip to true if we detect a wake word
@@ -175,10 +175,10 @@ impl Listener {
 
                 tracing::info!("Detected {:?}", detected_wake_word);
 
-                let event = AudioDetectorData::WakeWordDetected(WakeWordDetection {
-                    wake_word: detected_wake_word.clone(),
-                    timestamp: ts_now,
-                });
+                let event = AudioDetectorData::WakeWordDetected(WakeWordDetection::new(
+                    detected_wake_word.clone(),
+                    ts_now,
+                ));
                 self.send_event(event)?;
             }
 
@@ -190,10 +190,10 @@ impl Listener {
                 .context("Cobra processing failed")?;
 
             // send event
-            let event = AudioDetectorData::VoiceProbability(VoiceProbability {
-                probability: voice_probability,
-                timestamp: ts_now,
-            });
+            let event = AudioDetectorData::VoiceProbability(VoiceProbability::new(
+                voice_probability,
+                ts_now,
+            ));
             self.send_event(event)?;
 
             // Add sample to buffer
@@ -230,10 +230,10 @@ impl Listener {
                     anyhow::bail!("Audio sample channel closed");
                 }
 
-                let event = AudioDetectorData::RecordingEnd(WakeWordDetection {
-                    wake_word: recording_triggering_wake_word.clone(),
-                    timestamp: recording_triggering_timestamp,
-                });
+                let event = AudioDetectorData::RecordingEnd(WakeWordDetection::new(
+                    recording_triggering_wake_word.clone(),
+                    recording_triggering_timestamp,
+                ));
                 self.send_event(event)?;
             }
         }
