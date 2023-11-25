@@ -59,6 +59,11 @@ assets = [
     "/var/lib/wakeword/keyword_files/",
     "644",
   ],
+  [
+    "keywords/Dismiss_en_raspberry-pi_v3_0_0.ppn",
+    "/var/lib/wakeword/keyword_files/",
+    "644",
+  ],
 ]
 conf-files = ["/etc/wakeword/settings.yaml"]
 maintainer = "David Weis <dweis7@gmail.com>"
