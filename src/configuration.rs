@@ -141,6 +141,10 @@ impl PicovoiceConfig {
             let built_in_keyword_paths = pv_keyword_paths();
 
             if let Some(keyword_path) = built_in_keyword_paths.get(built_in_keyword) {
+                info!(
+                    "Loading built-in keyword {:?} from {:?}",
+                    built_in_keyword, keyword_path
+                );
                 selected_keywords.push((built_in_keyword.clone(), PathBuf::from(keyword_path)));
             } else {
                 return Err(anyhow::anyhow!(
@@ -151,6 +155,7 @@ impl PicovoiceConfig {
         }
 
         for (keyword, keyword_path) in self.keyword_paths.iter().flatten() {
+            info!("Loading keyword {:?} from {:?}", keyword, keyword_path);
             selected_keywords.push((keyword.clone(), keyword_path.clone()));
         }
 
@@ -167,12 +172,15 @@ impl PicovoiceConfig {
         let mut porcupine_builder =
             PorcupineBuilder::new_with_keyword_paths(&self.access_key, &keyword_paths);
         if let Some(sensitivities) = &self.sensitivities {
+            info!("Applying sensitivities {:?}", sensitivities);
             porcupine_builder.sensitivities(sensitivities);
         }
         if let Some(model_path) = &self.model_path {
+            info!("Loading porcupine model from {:?}", model_path);
             porcupine_builder.model_path(model_path);
         }
         if let Some(porcupine_lib_path) = &self.porcupine_lib_path {
+            info!("Loading porcupine library from {:?}", porcupine_lib_path);
             porcupine_builder.library_path(porcupine_lib_path);
         }
         let porcupine = porcupine_builder
