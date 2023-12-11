@@ -104,6 +104,8 @@ pub struct PicovoiceConfig {
     pub model_path: Option<std::path::PathBuf>,
     pub sensitivities: Option<Vec<f32>>,
     pub audio_device_index: Option<i32>,
+    /// Keyword used to dismiss active recording
+    pub dismiss_keyword: Option<String>,
     // these are stupid. Why are they not included in a more sensible way?
     pub cobra_lib_path: Option<std::path::PathBuf>,
     pub porcupine_lib_path: Option<std::path::PathBuf>,

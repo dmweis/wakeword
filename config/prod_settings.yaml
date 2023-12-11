@@ -11,7 +11,10 @@ picovoice:
     "Hey Hopper": "/var/lib/wakeword/keyword_files/Hey-Hopper_en_raspberry-pi_v3_0_0.ppn"
     "Hopper Stop": "/var/lib/wakeword/keyword_files/Hopper-Stop_en_raspberry-pi_v3_0_0.ppn"
     "bumblebee": "/var/lib/wakeword/default_keyword_files/bumblebee_raspberry-pi.ppn"
+    "dismiss": "/var/lib/wakeword/keyword_files/Dismiss_en_raspberry-pi_v3_0_0.ppn"
+  dismiss_keyword: "dismiss"
   sensitivities:
+    - 0.2
     - 0.2
     - 0.2
     - 0.2

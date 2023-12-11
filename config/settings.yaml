@@ -10,8 +10,10 @@ picovoice:
   keyword_paths:
     "Hey Hopper": "keywords/Hey-Hopper_en_raspberry-pi_v3_0_0.ppn"
     "Hopper Stop": "/var/lib/wakeword/keyword_files/Hopper-Stop_en_raspberry-pi_v3_0_0.ppn"
+    "dismiss": "/var/lib/wakeword/keyword_files/Dismiss_en_raspberry-pi_v3_0_0.ppn"
   keywords:
    - "bumblebee"
+   dismiss_keyword: "dismiss"
 openai:
   api_key: "API_KEY"
 zenoh:

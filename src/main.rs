@@ -26,6 +26,7 @@ use std::{
 use tempdir::TempDir;
 use thiserror::Error;
 use tokio::sync::mpsc::error::TrySendError;
+use tracing::info;
 use zenoh::prelude::r#async::*;
 
 use configuration::{get_configuration, AppConfig, PicovoiceConfig};
@@ -52,6 +53,7 @@ struct Listener {
     porcupine: Porcupine,
     cobra: Cobra,
     selected_keywords: Vec<(String, PathBuf)>,
+    dismiss_keyword: Option<String>,
     audio_sample_sender: tokio::sync::mpsc::Sender<AudioSample>,
     audio_detector_data: tokio::sync::mpsc::Sender<AudioDetectorData>,
 }
@@ -96,6 +98,7 @@ impl Listener {
             porcupine,
             cobra,
             selected_keywords,
+            dismiss_keyword: config.dismiss_keyword.clone(),
             audio_sample_sender,
             audio_detector_data,
         };
@@ -147,6 +150,16 @@ impl Listener {
 
             // skip in privacy mode
             if PRIVACY_MODE.load(Ordering::Relaxed) {
+                // cancel recording if ongoing
+                if currently_recording {
+                    info!("Canceling recording because of privacy mode");
+                    let event = AudioDetectorData::RecordingEnd(WakeWordDetection::new(
+                        recording_triggering_wake_word.clone(),
+                        recording_triggering_timestamp,
+                    ));
+                    self.send_event(event)?;
+                }
+
                 // stop any recording
                 currently_recording = false;
                 audio_buffer.clear();
@@ -156,6 +169,30 @@ impl Listener {
             // wake word detection
             let detected_wake_word = self.detect_wake_word(&audio_frame)?;
             if let Some(detected_wake_word) = detected_wake_word {
+                // detect dismiss keywords
+                if Some(detected_wake_word.clone()) == self.dismiss_keyword {
+                    info!("Dismiss keyword detected {:?}", self.dismiss_keyword);
+                    // cancel recording if ongoing
+                    if currently_recording {
+                        info!("Canceling recording because of dismiss keyword");
+                        let event = AudioDetectorData::RecordingEnd(WakeWordDetection::new(
+                            recording_triggering_wake_word.clone(),
+                            recording_triggering_timestamp,
+                        ));
+                        self.send_event(event)?;
+                    }
+                    // stop any recording
+                    currently_recording = false;
+                    audio_buffer.clear();
+                    // send dismiss keyword detection
+                    let event = AudioDetectorData::WakeWordDetected(WakeWordDetection::new(
+                        detected_wake_word.clone(),
+                        ts_now,
+                    ));
+                    self.send_event(event)?;
+                    continue;
+                }
+
                 // don't update wake word if we're already recording
                 if !currently_recording {
                     recording_triggering_timestamp = ts_now;
