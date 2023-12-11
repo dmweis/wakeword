@@ -27,7 +27,7 @@ use tempdir::TempDir;
 use thiserror::Error;
 use tokio::sync::mpsc::error::TrySendError;
 use tracing::info;
-use zenoh::prelude::r#async::*;
+use zenoh::{prelude::r#async::*, publication::Publisher};
 
 use configuration::{get_configuration, AppConfig, PicovoiceConfig};
 use messages::{
@@ -393,6 +393,12 @@ async fn main() -> anyhow::Result<()> {
         .await
         .map_err(WakewordError::ZenohError)?;
 
+    let wake_word_audio_recording_wav_publisher = zenoh_session
+        .declare_publisher(app_config.app.get_wake_word_audio_recording_wav_topic())
+        .res()
+        .await
+        .map_err(WakewordError::ZenohError)?;
+
     while let Some(audio_sample) = audio_sample_receiver.recv().await {
         let system_prompt = app_config.app.system_prompts.get(&audio_sample.wake_word);
 
@@ -408,7 +414,14 @@ async fn main() -> anyhow::Result<()> {
             }
         };
 
-        match transcribe(&audio_sample, system_prompt, &open_ai_client).await {
+        match transcribe(
+            &audio_sample,
+            system_prompt,
+            &open_ai_client,
+            &wake_word_audio_recording_wav_publisher,
+        )
+        .await
+        {
             Ok(transcript) => {
                 tracing::info!("Transcript {:?}", transcript);
 
@@ -437,6 +450,7 @@ async fn transcribe(
     audio_sample: &AudioSample,
     system_prompt: &str,
     open_ai_client: &OpenAiClient<OpenAIConfig>,
+    audio_publisher: &Publisher<'_>,
 ) -> anyhow::Result<String> {
     let temp_dir = TempDir::new("audio_message_temp_dir")?;
     let temp_audio_file = temp_dir.path().join("recorded.wav");
@@ -444,6 +458,13 @@ async fn transcribe(
     audio_sample
         .write_to_wav_file(&temp_audio_file)
         .context("Failed to write audio sample to wav file")?;
+
+    let wav_file = tokio::fs::read(&temp_audio_file).await?;
+    audio_publisher
+        .put(wav_file)
+        .res()
+        .await
+        .map_err(WakewordError::ZenohError)?;
 
     tracing::info!("Wrote audio sample to {:?}", temp_audio_file);
 
