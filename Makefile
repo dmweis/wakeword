@@ -36,6 +36,6 @@ build-docker:
 	mkdir docker_out
 	DOCKER_BUILDKIT=1 docker build --tag wakeword-builder --file Dockerfile --output type=local,dest=docker_out .
 
-.PHONY: push-docker-built
-push-docker-built: build-docker
-	rsync -avz --delete docker_out/* $(TARGET_HOST_USER):/home/$(TARGET_USERNAME)/wakeword
+.PHONY: deploy-with-ez-cd
+deploy-with-ez-cd: build-docker
+	ez-cd-cli -f docker_out/hub-system.deb -d bedroomblindspi
