@@ -145,20 +145,7 @@ impl Listener {
             let audio_frame = self.recorder.read().context("Failed to read audio frame")?;
 
             // skip in privacy mode
-            if self.privacy_mode_flag.load(Ordering::Relaxed) {
-                // cancel recording if ongoing
-                if self.currently_recording {
-                    info!("Canceling recording because of privacy mode");
-                    let event = AudioDetectorData::RecordingEnd(WakeWordDetection::new(
-                        self.recording_triggering_wake_word.clone(),
-                        self.recording_triggering_timestamp,
-                    ));
-                    self.send_event(event)?;
-                }
-
-                // stop any recording
-                self.currently_recording = false;
-                self.audio_buffer.clear();
+            if self.check_privacy_mode()? {
                 continue;
             }
 
@@ -166,26 +153,7 @@ impl Listener {
             let detected_wake_word = self.detect_wake_word(&audio_frame)?;
             if let Some(detected_wake_word) = detected_wake_word {
                 // detect dismiss keywords
-                if Some(detected_wake_word.clone()) == self.dismiss_keyword {
-                    info!("Dismiss keyword detected {:?}", self.dismiss_keyword);
-                    // cancel recording if ongoing
-                    if self.currently_recording {
-                        info!("Canceling recording because of dismiss keyword");
-                        let event = AudioDetectorData::RecordingEnd(WakeWordDetection::new(
-                            self.recording_triggering_wake_word.clone(),
-                            self.recording_triggering_timestamp,
-                        ));
-                        self.send_event(event)?;
-                    }
-                    // stop any recording
-                    self.currently_recording = false;
-                    self.audio_buffer.clear();
-                    // send dismiss keyword detection
-                    let event = AudioDetectorData::WakeWordDetected(WakeWordDetection::new(
-                        detected_wake_word.clone(),
-                        ts_now,
-                    ));
-                    self.send_event(event)?;
+                if self.check_dismiss_keyword(&detected_wake_word, ts_now)? {
                     continue;
                 }
 
@@ -215,64 +183,133 @@ impl Listener {
                 self.send_event(event)?;
             }
 
-            // voice probability
-            let voice_probability = self
-                .cobra
-                .process(&audio_frame)
-                .map_err(WakewordError::CobraError)
-                .context("Cobra processing failed")?;
-
-            // send event
-            let event = AudioDetectorData::VoiceProbability(VoiceProbability::new(
-                voice_probability,
-                ts_now,
-            ));
-            self.send_event(event)?;
+            self.check_human_voice_probability(&audio_frame, ts_now)?;
 
             // Add sample to buffer
             if self.currently_recording {
                 self.audio_buffer.extend_from_slice(&audio_frame);
             }
 
-            // Check human speech presence
-            let human_speech_detected =
-                voice_probability > HUMAN_SPEECH_DETECTION_PROBABILITY_THRESHOLD;
-            if human_speech_detected {
-                self.last_human_speech_detected = Instant::now();
-            }
-
+            // Check timeout
             let should_be_recording =
                 self.last_human_speech_detected.elapsed() < HUMAN_SPEECH_DETECTION_TIMEOUT;
 
             if self.currently_recording && !should_be_recording {
                 // stop recording
-                self.currently_recording = false;
-                let audio_sample = AudioSample {
-                    data: self.audio_buffer.clone(),
-                    wake_word: self.recording_triggering_wake_word.clone(),
-                    sample_rate: self.porcupine.sample_rate(),
-                    timestamp: self.recording_triggering_timestamp,
-                };
-                // erase audio buffer after sending
-                self.audio_buffer.clear();
-
-                tracing::info!("Sending audio sample");
-                if let Err(TrySendError::Closed(_)) =
-                    self.audio_sample_sender.try_send(audio_sample)
-                {
-                    anyhow::bail!("Audio sample channel closed");
-                }
-
-                let event = AudioDetectorData::RecordingEnd(WakeWordDetection::new(
-                    self.recording_triggering_wake_word.clone(),
-                    self.recording_triggering_timestamp,
-                ));
-                self.send_event(event)?;
+                self.finish_recording()?;
             }
         }
 
         // TODO(David): Is this object RAII?
         // Maybe we should have some nicer termination detection
         //recorder.stop().context("Failed to stop audio recording")?;
+    }
+
+    fn check_privacy_mode(&mut self) -> anyhow::Result<bool> {
+        // skip in privacy mode
+        if self.privacy_mode_flag.load(Ordering::Relaxed) {
+            // cancel recording if ongoing
+            if self.currently_recording {
+                info!("Canceling recording because of privacy mode");
+                let event = AudioDetectorData::RecordingEnd(WakeWordDetection::new(
+                    self.recording_triggering_wake_word.clone(),
+                    self.recording_triggering_timestamp,
+                ));
+                self.send_event(event)?;
+            }
+
+            // stop any recording
+            self.currently_recording = false;
+            self.audio_buffer.clear();
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    fn check_dismiss_keyword(
+        &mut self,
+        detected_wake_word: &str,
+        ts_now: chrono::DateTime<chrono::Utc>,
+    ) -> anyhow::Result<bool> {
+        if self
+            .dismiss_keyword
+            .as_ref()
+            .is_some_and(|dismiss_keyword| dismiss_keyword == detected_wake_word)
+        {
+            info!("Dismiss keyword detected {:?}", self.dismiss_keyword);
+            // cancel recording if ongoing
+            if self.currently_recording {
+                info!("Canceling recording because of dismiss keyword");
+                let event = AudioDetectorData::RecordingEnd(WakeWordDetection::new(
+                    self.recording_triggering_wake_word.clone(),
+                    self.recording_triggering_timestamp,
+                ));
+                self.send_event(event)?;
+            }
+            // stop any recording
+            self.currently_recording = false;
+            self.audio_buffer.clear();
+            // send dismiss keyword detection
+            let event = AudioDetectorData::WakeWordDetected(WakeWordDetection::new(
+                detected_wake_word.to_owned(),
+                ts_now,
+            ));
+            self.send_event(event)?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    fn check_human_voice_probability(
+        &mut self,
+        audio_frame: &[i16],
+        ts_now: chrono::DateTime<chrono::Utc>,
+    ) -> anyhow::Result<()> {
+        // voice probability
+        let voice_probability = self
+            .cobra
+            .process(&audio_frame)
+            .map_err(WakewordError::CobraError)
+            .context("Cobra processing failed")?;
+
+        // send event
+        let event =
+            AudioDetectorData::VoiceProbability(VoiceProbability::new(voice_probability, ts_now));
+        self.send_event(event)?;
+
+        // Check human speech presence
+        let human_speech_detected =
+            voice_probability > HUMAN_SPEECH_DETECTION_PROBABILITY_THRESHOLD;
+        if human_speech_detected {
+            self.last_human_speech_detected = Instant::now();
+        }
+        Ok(())
+    }
+
+    /// Finish recording and send data
+    fn finish_recording(&mut self) -> anyhow::Result<()> {
+        self.currently_recording = false;
+        let audio_sample = AudioSample {
+            data: self.audio_buffer.clone(),
+            wake_word: self.recording_triggering_wake_word.clone(),
+            sample_rate: self.porcupine.sample_rate(),
+            timestamp: self.recording_triggering_timestamp,
+        };
+        // erase audio buffer after sending
+        self.audio_buffer.clear();
+
+        tracing::info!("Sending audio sample");
+        if let Err(TrySendError::Closed(_)) = self.audio_sample_sender.try_send(audio_sample) {
+            anyhow::bail!("Audio sample channel closed");
+        }
+
+        let event = AudioDetectorData::RecordingEnd(WakeWordDetection::new(
+            self.recording_triggering_wake_word.clone(),
+            self.recording_triggering_timestamp,
+        ));
+        self.send_event(event)?;
+        Ok(())
     }
 }
