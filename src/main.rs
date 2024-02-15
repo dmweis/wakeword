@@ -81,7 +81,7 @@ async fn main() -> anyhow::Result<()> {
         let privacy_mode_flag = privacy_mode_flag.clone();
 
         move || loop {
-            let listener = match Listener::new(
+            let mut listener = match Listener::new(
                 app_config.picovoice.clone(),
                 audio_sample_sender.clone(),
                 audio_detector_event_sender.clone(),

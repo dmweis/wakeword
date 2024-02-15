@@ -2,9 +2,12 @@ use anyhow::Context;
 use cobra::Cobra;
 use porcupine::Porcupine;
 use pv_recorder::{PvRecorder, PvRecorderBuilder};
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
-use std::{path::PathBuf, sync::atomic::Ordering, time::Instant};
+use std::{
+    path::PathBuf,
+    sync::atomic::Ordering,
+    sync::{atomic::AtomicBool, Arc},
+    time::Instant,
+};
 use tokio::sync::mpsc::error::TrySendError;
 use tracing::info;
 
@@ -22,14 +25,32 @@ pub enum AudioDetectorData {
 }
 
 pub struct Listener {
+    /// Recording audio from microphone
     recorder: PvRecorder,
+    /// WakeWord detector
     porcupine: Porcupine,
+    /// Human speech detector
     cobra: Cobra,
+    /// WakeWord models
     selected_keywords: Vec<(String, PathBuf)>,
+    /// Keyword used for dismiss events
     dismiss_keyword: Option<String>,
+    /// Sending raw audio recordings
     audio_sample_sender: tokio::sync::mpsc::Sender<AudioSample>,
+    /// Sending wakeword events
     audio_detector_data: tokio::sync::mpsc::Sender<AudioDetectorData>,
+    /// Privacy mode
+    /// When this flag is true do not listen to audio
     privacy_mode_flag: Arc<AtomicBool>,
+
+    last_human_speech_detected: Instant,
+    // currently held audio samples
+    audio_buffer: Vec<i16>,
+
+    /// These could be grouped into an object
+    recording_triggering_timestamp: chrono::DateTime<chrono::Utc>,
+    recording_triggering_wake_word: String,
+    currently_recording: bool,
 }
 
 impl Listener {
@@ -77,6 +98,13 @@ impl Listener {
             audio_sample_sender,
             audio_detector_data,
             privacy_mode_flag,
+            audio_buffer: vec![],
+            // doesn't matter is we starting it to now
+            last_human_speech_detected: Instant::now(),
+            // these three could be joined into one type
+            recording_triggering_timestamp: chrono::Utc::now(),
+            recording_triggering_wake_word: String::new(),
+            currently_recording: false,
         };
 
         Ok(listener)
@@ -110,16 +138,8 @@ impl Listener {
         Ok(())
     }
 
-    pub fn listener_loop(&self) -> anyhow::Result<()> {
+    pub fn listener_loop(&mut self) -> anyhow::Result<()> {
         tracing::info!("Listening for wake words...");
-
-        let mut audio_buffer = Vec::new();
-
-        let mut recording_triggering_timestamp = chrono::Utc::now();
-        let mut recording_triggering_wake_word = String::new();
-        let mut currently_recording = false;
-
-        let mut last_human_speech_detected = Instant::now();
         loop {
             let ts_now = chrono::Utc::now();
             let audio_frame = self.recorder.read().context("Failed to read audio frame")?;
@@ -127,18 +147,18 @@ impl Listener {
             // skip in privacy mode
             if self.privacy_mode_flag.load(Ordering::Relaxed) {
                 // cancel recording if ongoing
-                if currently_recording {
+                if self.currently_recording {
                     info!("Canceling recording because of privacy mode");
                     let event = AudioDetectorData::RecordingEnd(WakeWordDetection::new(
-                        recording_triggering_wake_word.clone(),
-                        recording_triggering_timestamp,
+                        self.recording_triggering_wake_word.clone(),
+                        self.recording_triggering_timestamp,
                     ));
                     self.send_event(event)?;
                 }
 
                 // stop any recording
-                currently_recording = false;
-                audio_buffer.clear();
+                self.currently_recording = false;
+                self.audio_buffer.clear();
                 continue;
             }
 
@@ -149,17 +169,17 @@ impl Listener {
                 if Some(detected_wake_word.clone()) == self.dismiss_keyword {
                     info!("Dismiss keyword detected {:?}", self.dismiss_keyword);
                     // cancel recording if ongoing
-                    if currently_recording {
+                    if self.currently_recording {
                         info!("Canceling recording because of dismiss keyword");
                         let event = AudioDetectorData::RecordingEnd(WakeWordDetection::new(
-                            recording_triggering_wake_word.clone(),
-                            recording_triggering_timestamp,
+                            self.recording_triggering_wake_word.clone(),
+                            self.recording_triggering_timestamp,
                         ));
                         self.send_event(event)?;
                     }
                     // stop any recording
-                    currently_recording = false;
-                    audio_buffer.clear();
+                    self.currently_recording = false;
+                    self.audio_buffer.clear();
                     // send dismiss keyword detection
                     let event = AudioDetectorData::WakeWordDetected(WakeWordDetection::new(
                         detected_wake_word.clone(),
@@ -170,21 +190,21 @@ impl Listener {
                 }
 
                 // don't update wake word if we're already recording
-                if !currently_recording {
-                    recording_triggering_timestamp = ts_now;
-                    recording_triggering_wake_word = detected_wake_word.clone();
+                if !self.currently_recording {
+                    self.recording_triggering_timestamp = ts_now;
+                    self.recording_triggering_wake_word = detected_wake_word.clone();
                     // only send event when we start recording
                     let event = AudioDetectorData::RecordingStarted(WakeWordDetection::new(
-                        recording_triggering_wake_word.clone(),
+                        self.recording_triggering_wake_word.clone(),
                         ts_now,
                     ));
                     self.send_event(event)?;
                 }
                 // flip to true if we detect a wake word
-                currently_recording = true;
+                self.currently_recording = true;
 
                 // also bump this to prevent going to sleep if human detection is slow
-                last_human_speech_detected = Instant::now();
+                self.last_human_speech_detected = Instant::now();
 
                 tracing::info!("Detected {:?}", detected_wake_word);
 
@@ -210,31 +230,31 @@ impl Listener {
             self.send_event(event)?;
 
             // Add sample to buffer
-            if currently_recording {
-                audio_buffer.extend_from_slice(&audio_frame);
+            if self.currently_recording {
+                self.audio_buffer.extend_from_slice(&audio_frame);
             }
 
             // Check human speech presence
             let human_speech_detected =
                 voice_probability > HUMAN_SPEECH_DETECTION_PROBABILITY_THRESHOLD;
             if human_speech_detected {
-                last_human_speech_detected = Instant::now();
+                self.last_human_speech_detected = Instant::now();
             }
 
             let should_be_recording =
-                last_human_speech_detected.elapsed() < HUMAN_SPEECH_DETECTION_TIMEOUT;
+                self.last_human_speech_detected.elapsed() < HUMAN_SPEECH_DETECTION_TIMEOUT;
 
-            if currently_recording && !should_be_recording {
+            if self.currently_recording && !should_be_recording {
                 // stop recording
-                currently_recording = false;
+                self.currently_recording = false;
                 let audio_sample = AudioSample {
-                    data: audio_buffer.clone(),
-                    wake_word: recording_triggering_wake_word.clone(),
+                    data: self.audio_buffer.clone(),
+                    wake_word: self.recording_triggering_wake_word.clone(),
                     sample_rate: self.porcupine.sample_rate(),
-                    timestamp: recording_triggering_timestamp,
+                    timestamp: self.recording_triggering_timestamp,
                 };
                 // erase audio buffer after sending
-                audio_buffer.clear();
+                self.audio_buffer.clear();
 
                 tracing::info!("Sending audio sample");
                 if let Err(TrySendError::Closed(_)) =
@@ -244,8 +264,8 @@ impl Listener {
                 }
 
                 let event = AudioDetectorData::RecordingEnd(WakeWordDetection::new(
-                    recording_triggering_wake_word.clone(),
-                    recording_triggering_timestamp,
+                    self.recording_triggering_wake_word.clone(),
+                    self.recording_triggering_timestamp,
                 ));
                 self.send_event(event)?;
             }
