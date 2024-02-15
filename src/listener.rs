@@ -2,17 +2,16 @@ use anyhow::Context;
 use cobra::Cobra;
 use porcupine::Porcupine;
 use pv_recorder::{PvRecorder, PvRecorderBuilder};
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use std::{path::PathBuf, sync::atomic::Ordering, time::Instant};
 use tokio::sync::mpsc::error::TrySendError;
 use tracing::info;
 
+use crate::messages::{AudioSample, VoiceProbability, WakeWordDetection};
 use crate::{
     configuration::PicovoiceConfig, WakewordError, HUMAN_SPEECH_DETECTION_PROBABILITY_THRESHOLD,
     HUMAN_SPEECH_DETECTION_TIMEOUT,
-};
-use crate::{
-    messages::{AudioSample, VoiceProbability, WakeWordDetection},
-    PRIVACY_MODE,
 };
 
 pub enum AudioDetectorData {
@@ -30,6 +29,7 @@ pub struct Listener {
     dismiss_keyword: Option<String>,
     audio_sample_sender: tokio::sync::mpsc::Sender<AudioSample>,
     audio_detector_data: tokio::sync::mpsc::Sender<AudioDetectorData>,
+    privacy_mode_flag: Arc<AtomicBool>,
 }
 
 impl Listener {
@@ -37,6 +37,7 @@ impl Listener {
         config: PicovoiceConfig,
         audio_sample_sender: tokio::sync::mpsc::Sender<AudioSample>,
         audio_detector_data: tokio::sync::mpsc::Sender<AudioDetectorData>,
+        privacy_mode_flag: Arc<AtomicBool>,
     ) -> anyhow::Result<Self> {
         let selected_keywords = config.keyword_pairs()?;
 
@@ -75,6 +76,7 @@ impl Listener {
             dismiss_keyword: config.dismiss_keyword.clone(),
             audio_sample_sender,
             audio_detector_data,
+            privacy_mode_flag,
         };
 
         Ok(listener)
@@ -123,7 +125,7 @@ impl Listener {
             let audio_frame = self.recorder.read().context("Failed to read audio frame")?;
 
             // skip in privacy mode
-            if PRIVACY_MODE.load(Ordering::Relaxed) {
+            if self.privacy_mode_flag.load(Ordering::Relaxed) {
                 // cancel recording if ongoing
                 if currently_recording {
                     info!("Canceling recording because of privacy mode");

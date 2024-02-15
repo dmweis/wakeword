@@ -34,8 +34,6 @@ const VOICE_TO_TEXT_TRANSCRIBE_MODEL_ENGLISH_LANGUAGE: &str = "en";
 const HUMAN_SPEECH_DETECTION_TIMEOUT: Duration = Duration::from_secs(3);
 const HUMAN_SPEECH_DETECTION_PROBABILITY_THRESHOLD: f32 = 0.5;
 
-pub static PRIVACY_MODE: AtomicBool = AtomicBool::new(false);
-
 /// Wake Word detection application using picovoice and zenoh
 #[derive(Parser)]
 #[command(author, version)]
@@ -75,15 +73,19 @@ async fn main() -> anyhow::Result<()> {
     let (audio_detector_event_sender, audio_detector_event_receiver) =
         tokio::sync::mpsc::channel(100);
 
+    let privacy_mode_flag = Arc::new(AtomicBool::new(false));
+
     // start listener
     let _listener_loop_join_handle = std::thread::spawn({
         let app_config = app_config.clone();
+        let privacy_mode_flag = privacy_mode_flag.clone();
 
         move || loop {
             let listener = match Listener::new(
                 app_config.picovoice.clone(),
                 audio_sample_sender.clone(),
                 audio_detector_event_sender.clone(),
+                privacy_mode_flag.clone(),
             ) {
                 Ok(listener) => listener,
                 Err(err) => {
@@ -112,7 +114,7 @@ async fn main() -> anyhow::Result<()> {
                 let msg = privacy_mode_subscriber.recv_async().await?;
                 let msg: String = msg.value.try_into()?;
                 let privacy_mode: PrivacyModeCommand = serde_json::from_str(&msg)?;
-                PRIVACY_MODE.store(privacy_mode.privacy_mode, Ordering::Relaxed);
+                privacy_mode_flag.store(privacy_mode.privacy_mode, Ordering::Relaxed);
                 Ok(())
             }
             .await;
