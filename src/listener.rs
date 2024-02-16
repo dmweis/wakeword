@@ -52,9 +52,7 @@ pub struct Listener {
     audio_buffer: Vec<i16>,
 
     /// These could be grouped into an object
-    recording_triggering_timestamp: chrono::DateTime<chrono::Utc>,
-    recording_triggering_wake_word: String,
-    currently_recording: bool,
+    recording_status: RecordingStatus,
 }
 
 impl Listener {
@@ -105,10 +103,7 @@ impl Listener {
             audio_buffer: vec![],
             // doesn't matter is we starting it to now
             last_human_speech_detected: Instant::now(),
-            // these three could be joined into one type
-            recording_triggering_timestamp: chrono::Utc::now(),
-            recording_triggering_wake_word: String::new(),
-            currently_recording: false,
+            recording_status: RecordingStatus::NotActive,
         };
 
         Ok(listener)
@@ -162,18 +157,18 @@ impl Listener {
                 }
 
                 // don't update wake word if we're already recording
-                if !self.currently_recording {
-                    self.recording_triggering_timestamp = ts_now;
-                    self.recording_triggering_wake_word = detected_wake_word.clone();
+                if !self.recording_status.active() {
+                    let active_recording = ActiveRecording::new(ts_now, detected_wake_word.clone());
+
+                    self.recording_status = RecordingStatus::Active(active_recording);
+
                     // only send event when we start recording
                     let event = AudioDetectorData::RecordingStarted(WakeWordDetection::new(
-                        self.recording_triggering_wake_word.clone(),
+                        detected_wake_word.clone(),
                         ts_now,
                     ));
                     self.send_event(event)?;
                 }
-                // flip to true if we detect a wake word
-                self.currently_recording = true;
 
                 // also bump this to prevent going to sleep if human detection is slow
                 self.last_human_speech_detected = Instant::now();
@@ -190,7 +185,7 @@ impl Listener {
             self.check_human_voice_probability(&audio_frame, ts_now)?;
 
             // Add sample to buffer
-            if self.currently_recording {
+            if self.recording_status.active() {
                 self.audio_buffer.extend_from_slice(&audio_frame);
             }
 
@@ -198,7 +193,7 @@ impl Listener {
             let should_be_recording =
                 self.last_human_speech_detected.elapsed() < HUMAN_SPEECH_DETECTION_TIMEOUT;
 
-            if self.currently_recording && !should_be_recording {
+            if self.recording_status.active() && !should_be_recording {
                 // stop recording
                 self.finish_recording()?;
             }
@@ -213,18 +208,16 @@ impl Listener {
         // skip in privacy mode
         if self.privacy_mode_flag.load(Ordering::Relaxed) {
             // cancel recording if ongoing
-            if self.currently_recording {
+            if let RecordingStatus::Active(recording_status) = self.recording_status.stop() {
                 info!("Canceling recording because of privacy mode");
                 let event = AudioDetectorData::RecordingEnd(WakeWordDetectionEnd::new(
-                    self.recording_triggering_wake_word.clone(),
-                    self.recording_triggering_timestamp,
+                    recording_status.recording_triggering_wake_word,
+                    recording_status.recording_triggering_timestamp,
                     DetectionEndReason::PrivacyModeActivated,
                 ));
                 self.send_event(event)?;
             }
-
-            // stop any recording
-            self.currently_recording = false;
+            // clear buffer after
             self.audio_buffer.clear();
             Ok(true)
         } else {
@@ -244,17 +237,16 @@ impl Listener {
         {
             info!("Dismiss keyword detected {:?}", self.dismiss_keyword);
             // cancel recording if ongoing
-            if self.currently_recording {
+            if let RecordingStatus::Active(recording_status) = self.recording_status.stop() {
                 info!("Canceling recording because of dismiss keyword");
                 let event = AudioDetectorData::RecordingEnd(WakeWordDetectionEnd::new(
-                    self.recording_triggering_wake_word.clone(),
-                    self.recording_triggering_timestamp,
+                    recording_status.recording_triggering_wake_word,
+                    recording_status.recording_triggering_timestamp,
                     DetectionEndReason::Dismissed,
                 ));
                 self.send_event(event)?;
             }
-            // stop any recording
-            self.currently_recording = false;
+            // clear after recording
             self.audio_buffer.clear();
             // send dismiss keyword detection
             let event = AudioDetectorData::WakeWordDetected(WakeWordDetection::new(
@@ -288,7 +280,7 @@ impl Listener {
             voice_probability,
             ts_now,
             time_since_last_human_speech_detected_ms as u64,
-            self.currently_recording,
+            self.recording_status.active(),
         ));
         self.send_event(event)?;
 
@@ -303,27 +295,62 @@ impl Listener {
 
     /// Finish recording and send data
     fn finish_recording(&mut self) -> anyhow::Result<()> {
-        self.currently_recording = false;
-        let audio_sample = AudioSample {
-            data: self.audio_buffer.clone(),
-            wake_word: self.recording_triggering_wake_word.clone(),
-            sample_rate: self.porcupine.sample_rate(),
-            timestamp: self.recording_triggering_timestamp,
-        };
-        // erase audio buffer after sending
-        self.audio_buffer.clear();
+        if let RecordingStatus::Active(recording_status) = self.recording_status.stop() {
+            let audio_sample = AudioSample {
+                data: self.audio_buffer.clone(),
+                wake_word: recording_status.recording_triggering_wake_word.clone(),
+                sample_rate: self.porcupine.sample_rate(),
+                timestamp: recording_status.recording_triggering_timestamp,
+            };
+            // erase audio buffer after sending
+            self.audio_buffer.clear();
 
-        tracing::info!("Sending audio sample");
-        if let Err(TrySendError::Closed(_)) = self.audio_sample_sender.try_send(audio_sample) {
-            anyhow::bail!("Audio sample channel closed");
+            tracing::info!("Sending audio sample");
+            if let Err(TrySendError::Closed(_)) = self.audio_sample_sender.try_send(audio_sample) {
+                anyhow::bail!("Audio sample channel closed");
+            }
+
+            let event = AudioDetectorData::RecordingEnd(WakeWordDetectionEnd::new(
+                recording_status.recording_triggering_wake_word.clone(),
+                recording_status.recording_triggering_timestamp,
+                DetectionEndReason::Finished,
+            ));
+            self.send_event(event)?;
         }
-
-        let event = AudioDetectorData::RecordingEnd(WakeWordDetectionEnd::new(
-            self.recording_triggering_wake_word.clone(),
-            self.recording_triggering_timestamp,
-            DetectionEndReason::Finished,
-        ));
-        self.send_event(event)?;
         Ok(())
+    }
+}
+
+pub enum RecordingStatus {
+    NotActive,
+    Active(ActiveRecording),
+}
+
+impl RecordingStatus {
+    fn active(&self) -> bool {
+        matches!(self, RecordingStatus::Active(_))
+    }
+
+    fn stop(&mut self) -> RecordingStatus {
+        let mut tmp = RecordingStatus::NotActive;
+        std::mem::swap(self, &mut tmp);
+        tmp
+    }
+}
+
+pub struct ActiveRecording {
+    recording_triggering_timestamp: chrono::DateTime<chrono::Utc>,
+    recording_triggering_wake_word: String,
+}
+
+impl ActiveRecording {
+    fn new(
+        recording_triggering_timestamp: chrono::DateTime<chrono::Utc>,
+        recording_triggering_wake_word: String,
+    ) -> Self {
+        Self {
+            recording_triggering_timestamp,
+            recording_triggering_wake_word,
+        }
     }
 }
