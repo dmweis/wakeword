@@ -4,8 +4,10 @@ use porcupine::Porcupine;
 use pv_recorder::{PvRecorder, PvRecorderBuilder};
 use std::{
     path::PathBuf,
-    sync::atomic::Ordering,
-    sync::{atomic::AtomicBool, Arc},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::Instant,
 };
 use tokio::sync::mpsc::error::TrySendError;
@@ -274,9 +276,16 @@ impl Listener {
             .map_err(WakewordError::CobraError)
             .context("Cobra processing failed")?;
 
+        let time_since_last_human_speech_detected_ms =
+            self.last_human_speech_detected.elapsed().as_millis();
+
         // send event
-        let event =
-            AudioDetectorData::VoiceProbability(VoiceProbability::new(voice_probability, ts_now));
+        let event = AudioDetectorData::VoiceProbability(VoiceProbability::new(
+            voice_probability,
+            ts_now,
+            time_since_last_human_speech_detected_ms as u64,
+            self.currently_recording,
+        ));
         self.send_event(event)?;
 
         // Check human speech presence

@@ -27,11 +27,11 @@ use thiserror::Error;
 use zenoh::{prelude::r#async::*, publication::Publisher};
 
 use configuration::{get_configuration, AppConfig};
-use messages::{AudioSample, AudioTranscript, PrivacyModeCommand};
+use messages::{AudioSample, AudioTranscript, PrivacyModeCommand, VoiceProbability};
 
 const VOICE_TO_TEXT_TRANSCRIBE_MODEL: &str = "whisper-1";
 const VOICE_TO_TEXT_TRANSCRIBE_MODEL_ENGLISH_LANGUAGE: &str = "en";
-const HUMAN_SPEECH_DETECTION_TIMEOUT: Duration = Duration::from_secs(3);
+const HUMAN_SPEECH_DETECTION_TIMEOUT: Duration = Duration::from_millis(1500);
 const HUMAN_SPEECH_DETECTION_PROBABILITY_THRESHOLD: f32 = 0.5;
 
 /// Wake Word detection application using picovoice and zenoh
@@ -284,7 +284,7 @@ async fn start_event_publisher(
                     .await
                     .map_err(WakewordError::ZenohError)?;
 
-                let pretty_print = voice_activity_to_text(voice_probability.probability);
+                let pretty_print = voice_activity_to_text(&voice_probability);
                 voice_probability_pretty_print_publisher
                     .put(pretty_print)
                     .res()
@@ -355,14 +355,26 @@ pub enum WakewordError {
     CobraError(cobra::CobraError),
 }
 
-fn voice_activity_to_text(voice_probability: f32) -> String {
-    let voice_percentage = voice_probability * 100.0;
+fn voice_activity_to_text(voice_probability: &VoiceProbability) -> String {
+    let voice_percentage = voice_probability.probability * 100.0;
     let bar_length = ((voice_percentage / 10.0) * 3.0).ceil() as usize;
     let empty_length = 30 - bar_length;
+
+    let detection_timed_out = voice_probability.time_since_last_human_ms
+        > HUMAN_SPEECH_DETECTION_TIMEOUT.as_millis() as u64;
+    let timeout_flare = if detection_timed_out { " " } else { "D" };
+    let recording_flare = if voice_probability.currently_recording {
+        "R"
+    } else {
+        " "
+    };
+
     format!(
-        "[{:3.0}]|{}{}|",
+        "[{:3.0}]|{}{}| {} {}",
         voice_percentage,
         "█".repeat(bar_length),
-        " ".repeat(empty_length)
+        " ".repeat(empty_length),
+        timeout_flare,
+        recording_flare
     )
 }

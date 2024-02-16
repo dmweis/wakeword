@@ -38,13 +38,22 @@ pub struct VoiceProbability {
     /// 0.0 to 1.0
     pub probability: f32,
     timestamp: chrono::DateTime<chrono::Utc>,
+    pub time_since_last_human_ms: u64,
+    pub currently_recording: bool,
 }
 
 impl VoiceProbability {
-    pub fn new(probability: f32, timestamp: chrono::DateTime<chrono::Utc>) -> Self {
+    pub fn new(
+        probability: f32,
+        timestamp: chrono::DateTime<chrono::Utc>,
+        time_since_last_human_ms: u64,
+        currently_recording: bool,
+    ) -> Self {
         Self {
             probability,
             timestamp,
+            time_since_last_human_ms,
+            currently_recording,
         }
     }
 }
