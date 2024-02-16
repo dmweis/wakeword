@@ -9,8 +9,8 @@ picovoice:
   audio_device_index: -1
   keyword_paths:
     "Hey Hopper": "keywords/Hey-Hopper_en_raspberry-pi_v3_0_0.ppn"
-    "Hopper Stop": "/var/lib/wakeword/keyword_files/Hopper-Stop_en_raspberry-pi_v3_0_0.ppn"
-    "dismiss": "/var/lib/wakeword/keyword_files/Dismiss_en_raspberry-pi_v3_0_0.ppn"
+    "Hopper Stop": "keywords/Hopper-Stop_en_raspberry-pi_v3_0_0.ppn"
+    "dismiss": "keywords/Dismiss_en_raspberry-pi_v3_0_0.ppn"
   keywords:
    - "bumblebee"
    dismiss_keyword: "dismiss"
