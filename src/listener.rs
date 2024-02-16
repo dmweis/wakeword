@@ -13,12 +13,15 @@ use std::{
 use tokio::sync::mpsc::error::TrySendError;
 use tracing::info;
 
-use crate::messages::{
-    AudioSample, DetectionEndReason, VoiceProbability, WakeWordDetection, WakeWordDetectionEnd,
-};
 use crate::{
     configuration::PicovoiceConfig, WakewordError, HUMAN_SPEECH_DETECTION_PROBABILITY_THRESHOLD,
     HUMAN_SPEECH_DETECTION_TIMEOUT,
+};
+use crate::{
+    messages::{
+        AudioSample, DetectionEndReason, VoiceProbability, WakeWordDetection, WakeWordDetectionEnd,
+    },
+    RECORDING_INITIAL_TIMEOUT,
 };
 
 pub enum AudioDetectorData {
@@ -190,8 +193,18 @@ impl Listener {
             }
 
             // Check timeout
-            let should_be_recording =
+            let mut should_be_recording =
                 self.last_human_speech_detected.elapsed() < HUMAN_SPEECH_DETECTION_TIMEOUT;
+
+            if let Some(recording_initial_status) = self
+                .recording_status
+                .is_in_recording_initial_timeout(ts_now)
+            {
+                // if we are in initial 3 seconds do not time out
+                if recording_initial_status {
+                    should_be_recording = true;
+                }
+            }
 
             if self.recording_status.active() && !should_be_recording {
                 // stop recording
@@ -335,6 +348,23 @@ impl RecordingStatus {
         let mut tmp = RecordingStatus::NotActive;
         std::mem::swap(self, &mut tmp);
         tmp
+    }
+
+    fn is_in_recording_initial_timeout(
+        &self,
+        ts_now: chrono::DateTime<chrono::Utc>,
+    ) -> Option<bool> {
+        match self {
+            RecordingStatus::Active(status) => {
+                let delta = status
+                    .recording_triggering_timestamp
+                    .signed_duration_since(ts_now);
+                // timeout if delta bigger
+                let timedout = delta > RECORDING_INITIAL_TIMEOUT;
+                Some(timedout)
+            }
+            RecordingStatus::NotActive => None,
+        }
     }
 }
 
