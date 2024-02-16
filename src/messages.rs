@@ -74,6 +74,35 @@ impl WakeWordDetection {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct WakeWordDetectionEnd {
+    wake_word: String,
+    timestamp: chrono::DateTime<chrono::Utc>,
+    reason: DetectionEndReason,
+}
+
+impl WakeWordDetectionEnd {
+    pub fn new(
+        wake_word: String,
+        timestamp: chrono::DateTime<chrono::Utc>,
+        reason: DetectionEndReason,
+    ) -> Self {
+        Self {
+            wake_word,
+            timestamp,
+            reason,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+pub enum DetectionEndReason {
+    Finished,
+    Dismissed,
+    PrivacyModeActivated,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct AudioTranscript {
     pub wake_word: String,
     pub timestamp: chrono::DateTime<chrono::Utc>,

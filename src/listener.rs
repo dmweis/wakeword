@@ -13,7 +13,9 @@ use std::{
 use tokio::sync::mpsc::error::TrySendError;
 use tracing::info;
 
-use crate::messages::{AudioSample, VoiceProbability, WakeWordDetection};
+use crate::messages::{
+    AudioSample, DetectionEndReason, VoiceProbability, WakeWordDetection, WakeWordDetectionEnd,
+};
 use crate::{
     configuration::PicovoiceConfig, WakewordError, HUMAN_SPEECH_DETECTION_PROBABILITY_THRESHOLD,
     HUMAN_SPEECH_DETECTION_TIMEOUT,
@@ -23,7 +25,7 @@ pub enum AudioDetectorData {
     VoiceProbability(VoiceProbability),
     RecordingStarted(WakeWordDetection),
     WakeWordDetected(WakeWordDetection),
-    RecordingEnd(WakeWordDetection),
+    RecordingEnd(WakeWordDetectionEnd),
 }
 
 pub struct Listener {
@@ -213,9 +215,10 @@ impl Listener {
             // cancel recording if ongoing
             if self.currently_recording {
                 info!("Canceling recording because of privacy mode");
-                let event = AudioDetectorData::RecordingEnd(WakeWordDetection::new(
+                let event = AudioDetectorData::RecordingEnd(WakeWordDetectionEnd::new(
                     self.recording_triggering_wake_word.clone(),
                     self.recording_triggering_timestamp,
+                    DetectionEndReason::PrivacyModeActivated,
                 ));
                 self.send_event(event)?;
             }
@@ -243,9 +246,10 @@ impl Listener {
             // cancel recording if ongoing
             if self.currently_recording {
                 info!("Canceling recording because of dismiss keyword");
-                let event = AudioDetectorData::RecordingEnd(WakeWordDetection::new(
+                let event = AudioDetectorData::RecordingEnd(WakeWordDetectionEnd::new(
                     self.recording_triggering_wake_word.clone(),
                     self.recording_triggering_timestamp,
+                    DetectionEndReason::Dismissed,
                 ));
                 self.send_event(event)?;
             }
@@ -314,9 +318,10 @@ impl Listener {
             anyhow::bail!("Audio sample channel closed");
         }
 
-        let event = AudioDetectorData::RecordingEnd(WakeWordDetection::new(
+        let event = AudioDetectorData::RecordingEnd(WakeWordDetectionEnd::new(
             self.recording_triggering_wake_word.clone(),
             self.recording_triggering_timestamp,
+            DetectionEndReason::Finished,
         ));
         self.send_event(event)?;
         Ok(())
