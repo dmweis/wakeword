@@ -270,7 +270,7 @@ impl Listener {
         // voice probability
         let voice_probability = self
             .cobra
-            .process(&audio_frame)
+            .process(audio_frame)
             .map_err(WakewordError::CobraError)
             .context("Cobra processing failed")?;
 
