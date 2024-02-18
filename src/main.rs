@@ -32,7 +32,7 @@ use messages::{AudioSample, AudioTranscript, PrivacyModeCommand, VoiceProbabilit
 const VOICE_TO_TEXT_TRANSCRIBE_MODEL: &str = "whisper-1";
 const VOICE_TO_TEXT_TRANSCRIBE_MODEL_ENGLISH_LANGUAGE: &str = "en";
 const HUMAN_SPEECH_DETECTION_TIMEOUT: Duration = Duration::from_millis(1500);
-const RECORDING_INITIAL_TIMEOUT: chrono::TimeDelta = chrono::TimeDelta::milliseconds(3000);
+const RECORDING_INITIAL_TIMEOUT: chrono::TimeDelta = chrono::TimeDelta::milliseconds(4000);
 const HUMAN_SPEECH_DETECTION_PROBABILITY_THRESHOLD: f32 = 0.5;
 
 /// Wake Word detection application using picovoice and zenoh
