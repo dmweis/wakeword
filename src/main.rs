@@ -6,6 +6,7 @@
 
 mod configuration;
 mod listener;
+mod logging;
 mod messages;
 
 use anyhow::Context;
@@ -14,6 +15,7 @@ use async_openai::{
 };
 use clap::Parser;
 use listener::{AudioDetectorData, Listener};
+use logging::{set_global_tracing_zenoh_subscriber, setup_tracing};
 use pv_recorder::PvRecorderBuilder;
 use std::{
     sync::{
@@ -55,7 +57,7 @@ struct Args {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args: Args = Args::parse();
-    setup_tracing(args.verbose);
+    setup_tracing(args.verbose, "wakeword");
     let app_config = get_configuration(&args.config)?;
 
     if args.show_audio_devices {
@@ -69,6 +71,8 @@ async fn main() -> anyhow::Result<()> {
         .await
         .map_err(WakewordError::ZenohError)?
         .into_arc();
+
+    set_global_tracing_zenoh_subscriber(zenoh_session.clone());
 
     let (audio_sample_sender, mut audio_sample_receiver) = tokio::sync::mpsc::channel(100);
     let (audio_detector_event_sender, audio_detector_event_receiver) =
@@ -332,20 +336,6 @@ fn show_audio_devices() {
         }
         Err(err) => panic!("Failed to get audio devices: {:?}", err),
     };
-}
-
-pub fn setup_tracing(verbosity_level: u8) {
-    let filter = match verbosity_level {
-        0 => tracing::level_filters::LevelFilter::INFO,
-        1 => tracing::level_filters::LevelFilter::DEBUG,
-        2 => tracing::level_filters::LevelFilter::TRACE,
-        _ => tracing::level_filters::LevelFilter::TRACE,
-    };
-
-    tracing_subscriber::fmt()
-        .with_thread_names(true)
-        .with_max_level(filter)
-        .init();
 }
 
 #[derive(Error, Debug)]
