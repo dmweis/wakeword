@@ -67,8 +67,10 @@ impl Listener {
     ) -> anyhow::Result<Self> {
         let selected_keywords = config.keyword_pairs()?;
 
+        info!("Configuring porcupine");
         let porcupine = config.build_porcupine()?;
 
+        info!("Configuring cobra");
         let cobra = if let Some(cobra_lib_path) = config.cobra_lib_path {
             Cobra::new_with_library(config.access_key, cobra_lib_path)
                 .map_err(WakewordError::CobraError)
@@ -79,6 +81,7 @@ impl Listener {
                 .context("Failed to create Cobra")?
         };
 
+        info!("Configuring recorder");
         let mut recorder_builder = PvRecorderBuilder::new(porcupine.frame_length() as i32);
         recorder_builder.device_index(config.audio_device_index.unwrap_or(-1));
 
@@ -90,6 +93,7 @@ impl Listener {
             .init()
             .context("Failed to initialize pvrecorder")?;
 
+        info!("Starting recorder");
         recorder
             .start()
             .context("Failed to start audio recording")?;
