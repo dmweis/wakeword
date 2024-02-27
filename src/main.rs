@@ -28,7 +28,7 @@ use tempdir::TempDir;
 use thiserror::Error;
 use zenoh::{prelude::r#async::*, publication::Publisher};
 
-use configuration::{get_configuration, AppConfig};
+use configuration::{get_configuration, AppConfig, PicovoiceConfig};
 use messages::{AudioSample, AudioTranscript, PrivacyModeCommand, VoiceProbability};
 
 const VOICE_TO_TEXT_TRANSCRIBE_MODEL: &str = "whisper-1";
@@ -58,10 +58,11 @@ struct Args {
 async fn main() -> anyhow::Result<()> {
     let args: Args = Args::parse();
     setup_tracing(args.verbose, "wakeword");
+
     let app_config = get_configuration(&args.config)?;
 
     if args.show_audio_devices {
-        show_audio_devices();
+        show_audio_devices(&app_config.picovoice);
         return Ok(());
     }
 
@@ -326,8 +327,13 @@ async fn start_event_publisher(
     Ok(())
 }
 
-fn show_audio_devices() {
-    let audio_devices = PvRecorderBuilder::default().get_available_devices();
+fn show_audio_devices(config: &PicovoiceConfig) {
+    let mut recorder_builder = PvRecorderBuilder::default();
+    if let Some(lib_path) = &config.recorder_lib_path {
+        recorder_builder.library_path(lib_path);
+    }
+
+    let audio_devices = recorder_builder.get_available_devices();
     match audio_devices {
         Ok(audio_devices) => {
             for (idx, device) in audio_devices.iter().enumerate() {
