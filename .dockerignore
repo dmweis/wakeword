@@ -5,10 +5,11 @@
 
 target/
 include/
-Dockerfile
+docker_out/
+tmp/
 
+Dockerfile
 dev_settings.yaml
 
-docker_out/
 
 Makefile
