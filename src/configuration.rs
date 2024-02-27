@@ -207,8 +207,11 @@ pub struct WakeWordOpenaiConfig {
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct WakewordZenohConfig {
+    #[serde(default)]
     pub connect: Vec<zenoh_config::EndPoint>,
+    #[serde(default)]
     pub listen: Vec<zenoh_config::EndPoint>,
+    #[serde(default)]
     pub config_path: Option<String>,
 }
 
