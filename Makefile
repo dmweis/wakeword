@@ -38,4 +38,4 @@ build-docker:
 
 .PHONY: deploy-with-ez-cd
 deploy-with-ez-cd: build-docker
-	ez-cd-cli -f docker_out/wakeword.deb -d bedroomblindspi
+	ez-cd-cli -f docker_out/wakeword.deb -d $(TARGET_HOST)
