@@ -1,9 +1,11 @@
 //! Based on <https://github.com/respeaker/pixel_ring/blob/master/pixel_ring/usb_pixel_ring_v2.py>
+//! and <https://github.com/respeaker/usb_4_mic_array/blob/master/tuning.py>
+
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
+use std::{thread, time::Duration};
 
 use anyhow::Result;
 use rusb::{Context, DeviceHandle, UsbContext};
-use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
-use std::{thread, time::Duration};
 use tracing::{error, info, warn};
 
 fn find_usb_device(vid: u16, pid: u16) -> Result<Option<PixelRing<Context>>> {
@@ -144,6 +146,33 @@ impl<T: UsbContext> PixelRing<T> {
         self.dev.release_interface(0)?;
         Ok(())
     }
+
+    /// DOA angle. Current value. Orientation depends on build configuration.
+    fn read_direction(&self) -> Result<i32> {
+        let id = 21; // ID for DOAANGLE
+        let cmd = 0x80 | 0x40; // Command for reading int
+        let length = 8; // Length of data to read
+
+        let mut buf = vec![0; length];
+
+        self.dev.read_control(
+            rusb::request_type(
+                rusb::Direction::In,
+                rusb::RequestType::Vendor,
+                rusb::Recipient::Device,
+            ),
+            0,
+            cmd,
+            id,
+            &mut buf,
+            self.timeout,
+        )?;
+
+        let response: (i32, i32) = bincode::deserialize(&buf)?;
+        let result = response.0;
+
+        Ok(result)
+    }
 }
 
 const VENDOR_ID: u16 = 0x2886;
@@ -165,6 +194,7 @@ enum SpeakerCommand {
     Off,
     Listen,
     Think,
+    ReadDirection(SyncSender<i32>),
 }
 
 #[derive(Debug, Clone)]
@@ -191,6 +221,14 @@ impl ReSpeakerCommander {
     #[allow(unused)]
     pub fn think(&self) {
         _ = self.sender.try_send(SpeakerCommand::Think);
+    }
+
+    #[allow(unused)]
+    pub fn read_direction(&self) -> Result<i32> {
+        let (sender, receiver) = sync_channel(1);
+        self.sender
+            .try_send(SpeakerCommand::ReadDirection(sender))?;
+        Ok(receiver.recv()?)
     }
 }
 
@@ -222,6 +260,11 @@ fn run_respeaker(command_receiver: &mut Receiver<SpeakerCommand>) -> Result<()> 
                 SpeakerCommand::Off => pixel_ring.off()?,
                 SpeakerCommand::Listen => pixel_ring.listen()?,
                 SpeakerCommand::Think => pixel_ring.think()?,
+                SpeakerCommand::ReadDirection(response_sender) => {
+                    let direction = pixel_ring.read_direction()?;
+                    // ignore error here because we don't care if caller is still alive
+                    _ = response_sender.send(direction);
+                }
             }
         }
         pixel_ring.close()?;
