@@ -1,4 +1,7 @@
-//! Based on <https://github.com/respeaker/pixel_ring/blob/master/pixel_ring/usb_pixel_ring_v2.py>
+//! Main documentation at <https://wiki.seeedstudio.com/ReSpeaker-USB-Mic-Array/>
+//!
+//!
+//! Code based on <https://github.com/respeaker/pixel_ring/blob/master/pixel_ring/usb_pixel_ring_v2.py>
 //! and <https://github.com/respeaker/usb_4_mic_array/blob/master/tuning.py>
 
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
