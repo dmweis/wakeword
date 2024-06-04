@@ -22,10 +22,6 @@ pub fn setup_tracing(verbosity_level: u8, topic_prefix: &str) {
         _ => tracing::level_filters::LevelFilter::TRACE,
     };
 
-    let stderr_writer = fmt::Layer::default()
-        .with_thread_names(true)
-        .with_writer(std::io::stderr);
-
     let tracing_zenoh_topic_full = format!("{}{}", topic_prefix, TRACING_ZENOH_TOPIC_FULL);
     let zenoh_full_writer = start_log_writer(&tracing_zenoh_topic_full);
     let zenoh_full_layer = fmt::Layer::default()
@@ -52,7 +48,6 @@ pub fn setup_tracing(verbosity_level: u8, topic_prefix: &str) {
         .with_max_level(filter)
         .finish()
         // add additional writers
-        .with(stderr_writer)
         .with(zenoh_full_layer)
         .with(zenoh_json_layer);
 

@@ -26,6 +26,7 @@ use std::{
 };
 use tempdir::TempDir;
 use thiserror::Error;
+use tracing::info;
 use zenoh::{prelude::r#async::*, publication::Publisher};
 
 use configuration::{get_configuration, AppConfig, PicovoiceConfig};
@@ -328,9 +329,13 @@ async fn start_event_publisher(
 }
 
 fn show_audio_devices(config: &PicovoiceConfig) {
+    info!("Listing audio devices");
     let mut recorder_builder = PvRecorderBuilder::default();
     if let Some(lib_path) = &config.recorder_lib_path {
+        info!("Loading audio library from {:?}", lib_path);
         recorder_builder.library_path(lib_path);
+    } else {
+        info!("Using default audio library path");
     }
 
     let audio_devices = recorder_builder.get_available_devices();

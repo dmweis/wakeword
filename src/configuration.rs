@@ -41,6 +41,7 @@ pub struct WakewordConfig {
     pub app: AppConfig,
     pub picovoice: PicovoiceConfig,
     pub openai: WakeWordOpenaiConfig,
+    #[serde(default)]
     pub zenoh: WakewordZenohConfig,
 }
 
@@ -205,7 +206,7 @@ pub struct WakeWordOpenaiConfig {
     pub api_key: String,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone, Default)]
 pub struct WakewordZenohConfig {
     #[serde(default)]
     pub connect: Vec<zenoh_config::EndPoint>,
@@ -223,10 +224,10 @@ impl WakewordZenohConfig {
             ZenohConfig::default()
         };
         if !self.connect.is_empty() {
-            config.connect.endpoints = self.connect.clone();
+            config.connect.endpoints.clone_from(&self.connect);
         }
         if !self.listen.is_empty() {
-            config.listen.endpoints = self.listen.clone();
+            config.listen.endpoints.clone_from(&self.listen);
         }
         Ok(config)
     }
