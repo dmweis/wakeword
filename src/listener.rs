@@ -14,8 +14,8 @@ use tokio::sync::mpsc::error::TrySendError;
 use tracing::info;
 
 use crate::{
-    configuration::PicovoiceConfig, WakewordError, HUMAN_SPEECH_DETECTION_PROBABILITY_THRESHOLD,
-    HUMAN_SPEECH_DETECTION_TIMEOUT,
+    configuration::PicovoiceConfig, respeaker::ReSpeakerCommander, WakewordError,
+    HUMAN_SPEECH_DETECTION_PROBABILITY_THRESHOLD, HUMAN_SPEECH_DETECTION_TIMEOUT,
 };
 use crate::{
     messages::{
@@ -56,6 +56,9 @@ pub struct Listener {
 
     /// These could be grouped into an object
     recording_status: RecordingStatus,
+
+    /// ReSpeaker LED ring commander
+    respeaker_commander: ReSpeakerCommander,
 }
 
 impl Listener {
@@ -64,6 +67,7 @@ impl Listener {
         audio_sample_sender: tokio::sync::mpsc::Sender<AudioSample>,
         audio_detector_data: tokio::sync::mpsc::Sender<AudioDetectorData>,
         privacy_mode_flag: Arc<AtomicBool>,
+        respeaker_commander: ReSpeakerCommander,
     ) -> anyhow::Result<Self> {
         let selected_keywords = config.keyword_pairs()?;
 
@@ -111,6 +115,7 @@ impl Listener {
             // doesn't matter is we starting it to now
             last_human_speech_detected: Instant::now(),
             recording_status: RecordingStatus::NotActive,
+            respeaker_commander,
         };
 
         Ok(listener)
@@ -152,6 +157,7 @@ impl Listener {
 
             // skip in privacy mode
             if self.check_privacy_mode()? {
+                self.respeaker_commander.off();
                 continue;
             }
 
@@ -160,11 +166,13 @@ impl Listener {
             if let Some(detected_wake_word) = detected_wake_word {
                 // detect dismiss keywords
                 if self.check_dismiss_keyword(&detected_wake_word, ts_now)? {
+                    self.respeaker_commander.off();
                     continue;
                 }
 
                 // don't update wake word if we're already recording
                 if !self.recording_status.active() {
+                    self.respeaker_commander.listen();
                     let active_recording = ActiveRecording::new(ts_now, detected_wake_word.clone());
 
                     self.recording_status = RecordingStatus::Active(active_recording);
@@ -213,6 +221,7 @@ impl Listener {
             if self.recording_status.active() && !should_be_recording {
                 // stop recording
                 self.finish_recording()?;
+                self.respeaker_commander.off();
             }
         }
 

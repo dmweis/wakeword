@@ -50,6 +50,8 @@ pub struct AppConfig {
     pub zenoh_prefix: String,
     #[serde(default)]
     pub system_prompts: HashMap<String, String>,
+    #[serde(default)]
+    pub enable_respeaker_integration: bool,
 }
 
 // zenoh topic

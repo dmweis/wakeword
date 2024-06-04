@@ -8,14 +8,14 @@ mod configuration;
 mod listener;
 mod logging;
 mod messages;
+mod respeaker;
 
 use anyhow::Context;
 use async_openai::{
     config::OpenAIConfig, types::CreateTranscriptionRequestArgs, Client as OpenAiClient,
 };
 use clap::Parser;
-use listener::{AudioDetectorData, Listener};
-use logging::{set_global_tracing_zenoh_subscriber, setup_tracing};
+
 use pv_recorder::PvRecorderBuilder;
 use std::{
     sync::{
@@ -26,11 +26,14 @@ use std::{
 };
 use tempdir::TempDir;
 use thiserror::Error;
-use tracing::info;
+use tracing::{info, warn};
 use zenoh::{prelude::r#async::*, publication::Publisher};
 
 use configuration::{get_configuration, AppConfig, PicovoiceConfig};
+use listener::{AudioDetectorData, Listener};
+use logging::{set_global_tracing_zenoh_subscriber, setup_tracing};
 use messages::{AudioSample, AudioTranscript, PrivacyModeCommand, VoiceProbability};
+use respeaker::{start_respeaker_loop, ReSpeakerCommander};
 
 const VOICE_TO_TEXT_TRANSCRIBE_MODEL: &str = "whisper-1";
 const VOICE_TO_TEXT_TRANSCRIBE_MODEL_ENGLISH_LANGUAGE: &str = "en";
@@ -67,6 +70,14 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    let respeaker_commander = if app_config.app.enable_respeaker_integration {
+        info!("ReSpeaker integration enabled");
+        start_respeaker_loop()
+    } else {
+        warn!("ReSpeaker integration disabled");
+        ReSpeakerCommander::dummy()
+    };
+
     let zenoh_config = app_config.zenoh.get_zenoh_config()?;
     let zenoh_session = zenoh::open(zenoh_config)
         .res()
@@ -86,6 +97,7 @@ async fn main() -> anyhow::Result<()> {
     let _listener_loop_join_handle = std::thread::spawn({
         let app_config = app_config.clone();
         let privacy_mode_flag = privacy_mode_flag.clone();
+        let speaker_commander = respeaker_commander.clone();
 
         move || loop {
             let mut listener = match Listener::new(
@@ -93,6 +105,7 @@ async fn main() -> anyhow::Result<()> {
                 audio_sample_sender.clone(),
                 audio_detector_event_sender.clone(),
                 privacy_mode_flag.clone(),
+                speaker_commander.clone(),
             ) {
                 Ok(listener) => listener,
                 Err(err) => {

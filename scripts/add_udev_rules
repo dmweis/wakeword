@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+
+set -e
+set -u
+set -o pipefail
+
+readonly udev_path="/etc/udev/rules.d/40-ReSpeaker.rules"
+
+echo "writing udev rules to $udev_path"
+
+cat <<EOT | sudo tee $udev_path > /dev/null
+
+# ReSpeaker
+SUBSYSTEM=="usb", ATTR{idVendor}=="2886", ATTR{idProduct}=="0018", MODE="0666"
+
+EOT
+
+sudo udevadm control --reload-rules && sudo udevadm trigger
+echo "Done"

@@ -5,6 +5,7 @@ app:
     "Hopper Stop": "You are a hexapod pet robot called Hopper. You can high five, fold, stand up, sit down. You can also do dance. Or change your face to an animation of the larson scanner."
     "Wintermute": "You are a hexapod pet robot called Hopper. You can high five, fold, stand up, sit down. You can also do dance. Or change your face to an animation of the larson scanner."
     "bumblebee": "You are a hexapod pet robot called Hopper. You can high five, fold, stand up, sit down. You can also do dance. Or change your face to an animation of the larson scanner."
+  enable_respeaker_integration: true
 picovoice:
   access_key: "ACCESS_KEY"
   audio_device_index: -1
