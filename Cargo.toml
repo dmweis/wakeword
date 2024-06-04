@@ -1,7 +1,7 @@
 [package]
 authors = ["David Weis <dweis7@gmail.com>"]
 name = "wakeword"
-version = "0.4.3"
+version = "0.4.4"
 edition = "2021"
 description = "Wakeword detector for the Picovoice Porcupine engine"
 license = "MIT OR APACHE"

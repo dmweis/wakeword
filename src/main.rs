@@ -148,8 +148,8 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // start transcriber in current task
-    let config = OpenAIConfig::new().with_api_key(&app_config.openai.api_key);
-    let open_ai_client = OpenAiClient::with_config(config);
+    let openai_config = OpenAIConfig::new().with_api_key(&app_config.openai.api_key);
+    let open_ai_client = OpenAiClient::with_config(openai_config);
 
     let transcript_publisher = zenoh_session
         .declare_publisher(app_config.app.get_transcript_topic())
@@ -188,6 +188,15 @@ async fn main() -> anyhow::Result<()> {
         {
             Ok(transcript) => {
                 tracing::info!("Transcript {:?}", transcript);
+
+                if let Some(dismiss_keyword) = &app_config.picovoice.dismiss_keyword {
+                    if transcript.to_lowercase().contains(dismiss_keyword) {
+                        tracing::info!(
+                            "Dismiss keyword detected in transcript. Dismissing transcript"
+                        );
+                        continue;
+                    }
+                }
 
                 let transcript = AudioTranscript {
                     wake_word: audio_sample.wake_word,

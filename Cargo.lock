@@ -3500,7 +3500,7 @@ checksum = "f3c4517f54858c779bbcbf228f4fca63d121bf85fbecb2dc578cdf4a39395690"
 
 [[package]]
 name = "wakeword"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "anyhow",
  "async-openai",
