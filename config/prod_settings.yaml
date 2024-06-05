@@ -5,6 +5,7 @@ app:
     "Hopper Stop": "You are a hexapod pet robot called Hopper. You can high five, fold, stand up, sit down. You can also do dance. Or change your face to an animation of the larson scanner."
     "Wintermute": "You are a hexapod pet robot called Hopper. You can high five, fold, stand up, sit down. You can also do dance. Or change your face to an animation of the larson scanner."
     "bumblebee": "You are a hexapod pet robot called Hopper. You can high five, fold, stand up, sit down. You can also do dance. Or change your face to an animation of the larson scanner."
+    "Songbird": "You are a hexapod pet robot called Hopper. You can high five, fold, stand up, sit down. You can also do dance. Or change your face to an animation of the larson scanner."
   enable_respeaker_integration: true
 picovoice:
   access_key: "ACCESS_KEY"
@@ -14,6 +15,7 @@ picovoice:
     "Hopper Stop": "/var/lib/wakeword/keyword_files/Hopper-Stop_en_raspberry-pi_v3_0_0.ppn"
     "bumblebee": "/var/lib/wakeword/default_keyword_files/bumblebee_raspberry-pi.ppn"
     "Wintermute": "/var/lib/wakeword/keyword_files/Wintermute_en_raspberry-pi_v3_0_0.ppn"
+    "Songbird": "/var/lib/wakeword/keyword_files/Songbird_en_raspberry-pi_v3_0_0.ppn"
     "dismiss": "/var/lib/wakeword/keyword_files/Dismiss_en_raspberry-pi_v3_0_0.ppn"
   dismiss_keyword: "dismiss"
   sensitivities:
