@@ -246,6 +246,7 @@ pub fn start_respeaker_loop() -> ReSpeakerCommander {
 fn respeaker_loop(mut command_receiver: Receiver<SpeakerCommand>) {
     while let Err(err) = run_respeaker(&mut command_receiver) {
         error!("ReSpeaker loop failed with err: {:?}", err);
+        thread::sleep(Duration::from_secs(1));
     }
     info!("Exiting ReSpeaker loop");
 }
