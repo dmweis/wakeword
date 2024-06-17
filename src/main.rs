@@ -10,9 +10,10 @@ mod logging;
 mod messages;
 mod respeaker;
 
-use anyhow::Context;
 use async_openai::{
-    config::OpenAIConfig, types::CreateTranscriptionRequestArgs, Client as OpenAiClient,
+    config::OpenAIConfig,
+    types::{AudioInput, CreateTranscriptionRequestArgs},
+    Client as OpenAiClient,
 };
 use clap::Parser;
 
@@ -24,7 +25,6 @@ use std::{
     },
     time::Duration,
 };
-use tempdir::TempDir;
 use thiserror::Error;
 use tracing::{info, warn};
 use zenoh::{prelude::r#async::*, publication::Publisher};
@@ -238,24 +238,18 @@ async fn transcribe(
     open_ai_client: &OpenAiClient<OpenAIConfig>,
     audio_publisher: &Publisher<'_>,
 ) -> anyhow::Result<String> {
-    let temp_dir = TempDir::new("audio_message_temp_dir")?;
-    let temp_audio_file = temp_dir.path().join("recorded.wav");
+    let wav_file = audio_sample.to_vaw_file()?;
 
-    audio_sample
-        .write_to_wav_file(&temp_audio_file)
-        .context("Failed to write audio sample to wav file")?;
-
-    let wav_file = tokio::fs::read(&temp_audio_file).await?;
     audio_publisher
-        .put(wav_file)
+        .put(wav_file.clone())
         .res()
         .await
         .map_err(WakewordError::ZenohError)?;
 
-    tracing::info!("Wrote audio sample to {:?}", temp_audio_file);
+    let audio_input = AudioInput::from_vec_u8(String::from("recorded.wav"), wav_file);
 
     let request = CreateTranscriptionRequestArgs::default()
-        .file(temp_audio_file)
+        .file(audio_input)
         .model(VOICE_TO_TEXT_TRANSCRIBE_MODEL)
         .language(VOICE_TO_TEXT_TRANSCRIBE_MODEL_ENGLISH_LANGUAGE)
         .prompt(system_prompt)

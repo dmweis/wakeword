@@ -1,6 +1,6 @@
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::{io::Cursor, path::Path};
 
 pub struct AudioSample {
     pub data: Vec<i16>,
@@ -10,6 +10,7 @@ pub struct AudioSample {
 }
 
 impl AudioSample {
+    #[allow(unused)]
     pub fn write_to_wav_file(&self, output_path: &Path) -> anyhow::Result<()> {
         let wavspec = hound::WavSpec {
             channels: 1,
@@ -25,6 +26,30 @@ impl AudioSample {
                 .context("Failed to write sample")?;
         }
         Ok(())
+    }
+
+    pub fn to_vaw_file(&self) -> anyhow::Result<Vec<u8>> {
+        let wavspec = hound::WavSpec {
+            channels: 1,
+            sample_rate: self.sample_rate,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+
+        let mut file = vec![];
+
+        {
+            let cursor = Cursor::new(&mut file);
+            let mut writer = hound::WavWriter::new(cursor, wavspec)
+                .context("Failed to open output audio file")?;
+            for sample in &self.data {
+                writer
+                    .write_sample(*sample)
+                    .context("Failed to write sample")?;
+            }
+        }
+
+        Ok(file)
     }
 }
 
