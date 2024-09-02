@@ -9,6 +9,7 @@ mod listener;
 mod logging;
 mod messages;
 mod respeaker;
+mod wakeword_validation;
 
 use async_openai::{
     config::OpenAIConfig,

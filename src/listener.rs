@@ -14,8 +14,9 @@ use tokio::sync::mpsc::error::TrySendError;
 use tracing::info;
 
 use crate::{
-    configuration::PicovoiceConfig, respeaker::ReSpeakerCommander, WakewordError,
-    HUMAN_SPEECH_DETECTION_PROBABILITY_THRESHOLD, HUMAN_SPEECH_DETECTION_TIMEOUT,
+    configuration::PicovoiceConfig, respeaker::ReSpeakerCommander,
+    wakeword_validation::AudioBuffer, WakewordError, HUMAN_SPEECH_DETECTION_PROBABILITY_THRESHOLD,
+    HUMAN_SPEECH_DETECTION_TIMEOUT,
 };
 use crate::{
     messages::{
@@ -59,6 +60,9 @@ pub struct Listener {
 
     /// ReSpeaker LED ring commander
     respeaker_commander: ReSpeakerCommander,
+
+    /// wake word buffer
+    wake_word_buffer: AudioBuffer,
 }
 
 impl Listener {
@@ -116,6 +120,7 @@ impl Listener {
             last_human_speech_detected: Instant::now(),
             recording_status: RecordingStatus::NotActive,
             respeaker_commander,
+            wake_word_buffer: AudioBuffer::default(),
         };
 
         Ok(listener)
@@ -153,7 +158,10 @@ impl Listener {
         tracing::info!("Listening for wake words...");
         loop {
             let ts_now = chrono::Utc::now();
+            let instant_now = Instant::now();
             let audio_frame = self.recorder.read().context("Failed to read audio frame")?;
+
+            self.wake_word_buffer.insert(instant_now, &audio_frame);
 
             // skip in privacy mode
             if self.check_privacy_mode()? {
@@ -186,7 +194,7 @@ impl Listener {
                 }
 
                 // also bump this to prevent going to sleep if human detection is slow
-                self.last_human_speech_detected = Instant::now();
+                self.last_human_speech_detected = instant_now;
 
                 tracing::info!("Detected {:?}", detected_wake_word);
 
