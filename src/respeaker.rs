@@ -274,8 +274,8 @@ fn run_respeaker(command_receiver: &mut Receiver<SpeakerCommand>) -> Result<()> 
         pixel_ring.close()?;
         info!("ReSpeaker command channel closed")
     } else {
-        error!("Haven't found ReSpeaker. Waiting");
-        std::thread::sleep(Duration::from_millis(500));
+        error!("ReSpeaker not found");
+        anyhow::bail!("ReSpeaker not found")
     }
 
     Ok(())
