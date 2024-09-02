@@ -98,7 +98,7 @@ async fn main() -> anyhow::Result<()> {
     let open_ai_client = OpenAiClient::with_config(openai_config);
 
     // start listener
-    let _listener_loop_join_handle = std::thread::spawn({
+    let _listener_loop_join_handle = tokio::task::spawn_blocking({
         let app_config = app_config.clone();
         let privacy_mode_flag = privacy_mode_flag.clone();
         let speaker_commander = respeaker_commander.clone();
