@@ -5,21 +5,95 @@ use std::{
 };
 
 use anyhow::Context;
+use async_openai::{
+    config::OpenAIConfig,
+    types::{AudioInput, CreateTranscriptionRequestArgs},
+    Client,
+};
+use tracing::{error, info};
+
+use crate::{VOICE_TO_TEXT_TRANSCRIBE_MODEL, VOICE_TO_TEXT_TRANSCRIBE_MODEL_ENGLISH_LANGUAGE};
 
 const AUDIO_SAMPLE_RETENTION_PERIOD: Duration = Duration::from_secs(5);
 
-#[derive(Default)]
-pub struct AudioBuffer {
+pub struct WakeWordValidator {
+    buffer: AudioBuffer,
+    sample_rate: u32,
+    open_ai_client: Client<OpenAIConfig>,
+}
+
+impl WakeWordValidator {
+    pub fn new(open_ai_client: Client<OpenAIConfig>, sample_rate: u32) -> Self {
+        Self {
+            buffer: Default::default(),
+            sample_rate,
+            open_ai_client,
+        }
+    }
+
+    pub fn insert(&mut self, now: Instant, sample: &[i16]) {
+        self.buffer.insert(now, sample);
+    }
+
+    pub fn contains_wakeword(
+        &self,
+        wakeword: &str,
+    ) -> anyhow::Result<tokio::sync::oneshot::Receiver<bool>> {
+        let wav_file = self.buffer.contents_to_wav(self.sample_rate)?;
+        let audio_input = AudioInput::from_vec_u8(String::from("recorded.wav"), wav_file);
+
+        let request = CreateTranscriptionRequestArgs::default()
+            .file(audio_input)
+            .model(VOICE_TO_TEXT_TRANSCRIBE_MODEL)
+            .language(VOICE_TO_TEXT_TRANSCRIBE_MODEL_ENGLISH_LANGUAGE)
+            .prompt(format!(
+                "This sample might contain the wake word {}",
+                wakeword
+            ))
+            .build()?;
+
+        // execute future
+        let (tx, rx) = tokio::sync::oneshot::channel();
+
+        tokio::spawn({
+            let open_ai_client = self.open_ai_client.clone();
+            let wakeword = wakeword.to_owned();
+            async move {
+                info!("starting validation for wakeword {:?}", &wakeword);
+                match open_ai_client.audio().transcribe(request).await {
+                    Ok(response) => {
+                        info!(
+                            "Transcribe for wakeword: {:?} returned {:?}",
+                            wakeword, response.text
+                        );
+                        let contains = response.text.to_ascii_lowercase().contains(&wakeword);
+                        // ignore error because we don't care if we failed to send
+                        _ = tx.send(contains);
+                    }
+                    Err(err) => {
+                        error!("Failed to transcribe wakeword buffer {:?}", err);
+                    }
+                }
+            }
+        });
+
+        Ok(rx)
+    }
+}
+
+#[derive(Debug, Default)]
+struct AudioBuffer {
     samples: VecDeque<AudioSample>,
 }
 
+#[derive(Debug)]
 struct AudioSample {
     sample: Vec<i16>,
     time: Instant,
 }
 
 impl AudioBuffer {
-    pub fn insert(&mut self, now: Instant, sample: &[i16]) {
+    fn insert(&mut self, now: Instant, sample: &[i16]) {
         // drain old
         while self.samples.front().is_some_and(|sample| {
             now.checked_duration_since(sample.time).unwrap_or_default()
@@ -34,8 +108,7 @@ impl AudioBuffer {
         });
     }
 
-    #[allow(dead_code)]
-    pub fn contents_to_wav(&self, sample_rate: u32) -> anyhow::Result<Vec<u8>> {
+    fn contents_to_wav(&self, sample_rate: u32) -> anyhow::Result<Vec<u8>> {
         let sample: Vec<i16> = self
             .samples
             .iter()

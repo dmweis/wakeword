@@ -1,4 +1,5 @@
 use anyhow::Context;
+use async_openai::{config::OpenAIConfig, Client};
 use cobra::Cobra;
 use porcupine::Porcupine;
 use pv_recorder::{PvRecorder, PvRecorderBuilder};
@@ -10,13 +11,13 @@ use std::{
     },
     time::Instant,
 };
-use tokio::sync::mpsc::error::TrySendError;
-use tracing::info;
+use tokio::sync::{mpsc::error::TrySendError, oneshot::error::TryRecvError};
+use tracing::{info, warn};
 
 use crate::{
     configuration::PicovoiceConfig, respeaker::ReSpeakerCommander,
-    wakeword_validation::AudioBuffer, WakewordError, HUMAN_SPEECH_DETECTION_PROBABILITY_THRESHOLD,
-    HUMAN_SPEECH_DETECTION_TIMEOUT,
+    wakeword_validation::WakeWordValidator, WakewordError,
+    HUMAN_SPEECH_DETECTION_PROBABILITY_THRESHOLD, HUMAN_SPEECH_DETECTION_TIMEOUT,
 };
 use crate::{
     messages::{
@@ -61,8 +62,9 @@ pub struct Listener {
     /// ReSpeaker LED ring commander
     respeaker_commander: ReSpeakerCommander,
 
-    /// wake word buffer
-    wake_word_buffer: AudioBuffer,
+    /// wake word validation state
+    wake_word_validator: WakeWordValidator,
+    wake_word_validation_future: Option<tokio::sync::oneshot::Receiver<bool>>,
 }
 
 impl Listener {
@@ -72,6 +74,7 @@ impl Listener {
         audio_detector_data: tokio::sync::mpsc::Sender<AudioDetectorData>,
         privacy_mode_flag: Arc<AtomicBool>,
         respeaker_commander: ReSpeakerCommander,
+        open_ai_client: Client<OpenAIConfig>,
     ) -> anyhow::Result<Self> {
         let selected_keywords = config.keyword_pairs()?;
 
@@ -106,6 +109,8 @@ impl Listener {
             .start()
             .context("Failed to start audio recording")?;
 
+        let sample_rate = porcupine.sample_rate();
+
         let listener = Self {
             recorder,
             porcupine,
@@ -120,7 +125,8 @@ impl Listener {
             last_human_speech_detected: Instant::now(),
             recording_status: RecordingStatus::NotActive,
             respeaker_commander,
-            wake_word_buffer: AudioBuffer::default(),
+            wake_word_validator: WakeWordValidator::new(open_ai_client, sample_rate),
+            wake_word_validation_future: None,
         };
 
         Ok(listener)
@@ -161,7 +167,7 @@ impl Listener {
             let instant_now = Instant::now();
             let audio_frame = self.recorder.read().context("Failed to read audio frame")?;
 
-            self.wake_word_buffer.insert(instant_now, &audio_frame);
+            self.wake_word_validator.insert(instant_now, &audio_frame);
 
             // skip in privacy mode
             if self.check_privacy_mode()? {
@@ -178,8 +184,17 @@ impl Listener {
                     continue;
                 }
 
+                // check if validation future is resolved
+                // we don't need the resulting from this method right now
+                _ = self.check_wake_word_validation();
+
                 // don't update wake word if we're already recording
                 if !self.recording_status.active() {
+                    // starting new wakeword detection
+                    let validation_future = self
+                        .wake_word_validator
+                        .contains_wakeword(&detected_wake_word)?;
+                    self.wake_word_validation_future = Some(validation_future);
                     self.respeaker_commander.listen();
                     let active_recording = ActiveRecording::new(ts_now, detected_wake_word.clone());
 
@@ -291,6 +306,43 @@ impl Listener {
             Ok(true)
         } else {
             Ok(false)
+        }
+    }
+
+    fn check_wake_word_validation(&mut self) -> anyhow::Result<Option<bool>> {
+        if let Some(future) = &mut self.wake_word_validation_future {
+            match future.try_recv() {
+                Ok(validated) => {
+                    if validated {
+                        info!("Wakeword validated successfully");
+                    } else {
+                        warn!("Wakeword not detected during validation. Stopping recording");
+                        if let RecordingStatus::Active(recording_status) =
+                            self.recording_status.stop()
+                        {
+                            info!("Canceling recording because of dismiss keyword");
+                            let event = AudioDetectorData::RecordingEnd(WakeWordDetectionEnd::new(
+                                recording_status.recording_triggering_wake_word,
+                                recording_status.recording_triggering_timestamp,
+                                DetectionEndReason::Dismissed,
+                            ));
+                            self.send_event(event)?;
+                        }
+                    }
+                    self.wake_word_validation_future = None;
+                    Ok(Some(validated))
+                }
+                Err(TryRecvError::Empty) => {
+                    // keep waiting
+                    Ok(None)
+                }
+                Err(TryRecvError::Closed) => {
+                    self.wake_word_validation_future = None;
+                    anyhow::bail!("failed to validate wakeword")
+                }
+            }
+        } else {
+            Ok(None)
         }
     }
 

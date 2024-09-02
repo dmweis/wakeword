@@ -94,11 +94,15 @@ async fn main() -> anyhow::Result<()> {
 
     let privacy_mode_flag = Arc::new(AtomicBool::new(false));
 
+    let openai_config = OpenAIConfig::new().with_api_key(&app_config.openai.api_key);
+    let open_ai_client = OpenAiClient::with_config(openai_config);
+
     // start listener
     let _listener_loop_join_handle = std::thread::spawn({
         let app_config = app_config.clone();
         let privacy_mode_flag = privacy_mode_flag.clone();
         let speaker_commander = respeaker_commander.clone();
+        let open_ai_client = open_ai_client.clone();
 
         move || loop {
             let mut listener = match Listener::new(
@@ -107,6 +111,7 @@ async fn main() -> anyhow::Result<()> {
                 audio_detector_event_sender.clone(),
                 privacy_mode_flag.clone(),
                 speaker_commander.clone(),
+                open_ai_client.clone(),
             ) {
                 Ok(listener) => listener,
                 Err(err) => {
@@ -162,8 +167,6 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // start transcriber in current task
-    let openai_config = OpenAIConfig::new().with_api_key(&app_config.openai.api_key);
-    let open_ai_client = OpenAiClient::with_config(openai_config);
 
     let transcript_publisher = zenoh_session
         .declare_publisher(app_config.app.get_transcript_topic())

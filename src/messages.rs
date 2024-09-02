@@ -125,6 +125,8 @@ pub enum DetectionEndReason {
     Finished,
     Dismissed,
     PrivacyModeActivated,
+    /// Validation using Whisper doesn't suggest that detection was correct
+    ValidationFailed,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
