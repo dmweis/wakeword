@@ -16,6 +16,20 @@ use crate::{VOICE_TO_TEXT_TRANSCRIBE_MODEL, VOICE_TO_TEXT_TRANSCRIBE_MODEL_ENGLI
 
 const AUDIO_SAMPLE_RETENTION_PERIOD: Duration = Duration::from_secs(5);
 
+/// Returned from the validation function
+/// Not used in this module but I didn't know where to put it
+pub enum ValidationStatus {
+    /// validation finished and returned negative results
+    NotValid,
+    /// validation still ongoing
+    Processing,
+    /// validation is not available. Likely already finished and either failed or succeeded
+    /// Either case we don't care because the method would have cleaned up if it was a failure
+    NotAvailable,
+    /// Validation successful
+    Valid,
+}
+
 pub struct WakeWordValidator {
     buffer: AudioBuffer,
     sample_rate: u32,

@@ -15,9 +15,10 @@ use tokio::sync::{mpsc::error::TrySendError, oneshot::error::TryRecvError};
 use tracing::{info, warn};
 
 use crate::{
-    configuration::PicovoiceConfig, respeaker::ReSpeakerCommander,
-    wakeword_validation::WakeWordValidator, WakewordError,
-    HUMAN_SPEECH_DETECTION_PROBABILITY_THRESHOLD, HUMAN_SPEECH_DETECTION_TIMEOUT,
+    configuration::PicovoiceConfig,
+    respeaker::ReSpeakerCommander,
+    wakeword_validation::{ValidationStatus, WakeWordValidator},
+    WakewordError, HUMAN_SPEECH_DETECTION_PROBABILITY_THRESHOLD, HUMAN_SPEECH_DETECTION_TIMEOUT,
 };
 use crate::{
     messages::{
@@ -242,6 +243,24 @@ impl Listener {
             }
 
             if self.recording_status.active() && !should_be_recording {
+                // loop until validation is finished
+                loop {
+                    let validation_status = self.check_wake_word_validation()?;
+                    match validation_status {
+                        ValidationStatus::Processing => {
+                            // keep trying
+                            continue;
+                        }
+                        ValidationStatus::NotAvailable
+                        | ValidationStatus::Valid
+                        | ValidationStatus::NotValid => {
+                            // finished
+                            // we don't care how it finished
+                            // because the method will clean up in case the validation failed
+                            break;
+                        }
+                    }
+                }
                 // stop recording
                 self.finish_recording()?;
                 self.respeaker_commander.off();
@@ -309,32 +328,37 @@ impl Listener {
         }
     }
 
-    fn check_wake_word_validation(&mut self) -> anyhow::Result<Option<bool>> {
+    fn check_wake_word_validation(&mut self) -> anyhow::Result<ValidationStatus> {
         if let Some(future) = &mut self.wake_word_validation_future {
             match future.try_recv() {
                 Ok(validated) => {
                     if validated {
                         info!("Wakeword validated successfully");
+                        self.wake_word_validation_future = None;
+                        Ok(ValidationStatus::Valid)
                     } else {
                         warn!("Wakeword not detected during validation. Stopping recording");
                         if let RecordingStatus::Active(recording_status) =
                             self.recording_status.stop()
                         {
-                            info!("Canceling recording because of dismiss keyword");
+                            info!("Canceling recording because of failing validation keyword");
                             let event = AudioDetectorData::RecordingEnd(WakeWordDetectionEnd::new(
                                 recording_status.recording_triggering_wake_word,
                                 recording_status.recording_triggering_timestamp,
                                 DetectionEndReason::Dismissed,
                             ));
+                            // clear after recording
                             self.send_event(event)?;
                         }
+                        // clear buffer
+                        self.audio_buffer.clear();
+                        self.wake_word_validation_future = None;
+                        Ok(ValidationStatus::NotValid)
                     }
-                    self.wake_word_validation_future = None;
-                    Ok(Some(validated))
                 }
                 Err(TryRecvError::Empty) => {
                     // keep waiting
-                    Ok(None)
+                    Ok(ValidationStatus::Processing)
                 }
                 Err(TryRecvError::Closed) => {
                     self.wake_word_validation_future = None;
@@ -342,7 +366,7 @@ impl Listener {
                 }
             }
         } else {
-            Ok(None)
+            Ok(ValidationStatus::NotAvailable)
         }
     }
 
