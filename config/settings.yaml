@@ -17,8 +17,8 @@ picovoice:
     "Wintermute": "keywords/Wintermute_en_raspberry-pi_v3_0_0.ppn"
     "Songbird": "/var/lib/wakeword/keyword_files/Songbird_en_raspberry-pi_v3_0_0.ppn"
   keywords:
-   - "bumblebee"
-   dismiss_keyword: "dismiss"
+    - "bumblebee"
+  dismiss_keyword: "dismiss"
 openai:
   api_key: "API_KEY"
 zenoh:
