@@ -1,0 +1,5 @@
+# ignore wakeword models
+*.ppn
+
+# ignore zip files in this dir
+*.zip

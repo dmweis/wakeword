@@ -4,6 +4,3 @@ dev_settings.yaml
 docker_out/
 include/
 tmp/
-
-# ignore wakeword models
-*.ppn
