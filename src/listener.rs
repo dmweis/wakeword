@@ -176,6 +176,10 @@ impl Listener {
                 continue;
             }
 
+            // check if validation future is resolved
+            // we don't need the resulting from this method right now
+            _ = self.check_wake_word_validation();
+
             // wake word detection
             let detected_wake_word = self.detect_wake_word(&audio_frame)?;
             if let Some(detected_wake_word) = detected_wake_word {
@@ -184,10 +188,6 @@ impl Listener {
                     self.respeaker_commander.off();
                     continue;
                 }
-
-                // check if validation future is resolved
-                // we don't need the resulting from this method right now
-                _ = self.check_wake_word_validation();
 
                 // don't update wake word if we're already recording
                 if !self.recording_status.active() {
