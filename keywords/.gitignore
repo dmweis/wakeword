@@ -1,5 +1,9 @@
 # ignore wakeword models
 *.ppn
+LICENSE.txt
 
 # ignore zip files in this dir
 *.zip
+
+# Mac
+.DS_Store
